@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project (first time only)
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.spywell --project-name transwell .
+            rm -rf test
+          fi
+          # App name shown under the icon
+          sed -i 's/android:label="[^"]*"/android:label="TransWell"/' android/app/src/main/AndroidManifest.xml
+
+      - run: flutter pub get
+
+      - name: Analyze (errors only)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk TransWell-v${{ github.run_number }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TransWell-apk
+          path: TransWell-v${{ github.run_number }}.apk
+          retention-days: 30
