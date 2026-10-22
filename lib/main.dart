@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -8,10 +10,96 @@ import 'others.dart';
 import 'services.dart';
 import 'widgets.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
-  runApp(TransWellApp(repo: Repo()));
+  // Any build error shows its message instead of a blank / grey screen.
+  ErrorWidget.builder = (details) => Material(
+        color: Colors.white,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: SingleChildScrollView(
+              child: Text('Screen mein error aaya. Ye message developer ko bhejo:\n\n${details.exceptionAsString()}',
+                  style: const TextStyle(color: Color(0xFFA9461A), fontSize: 14)),
+            ),
+          ),
+        ),
+      );
+  runApp(const BootApp());
+}
+
+/// Shows the logo at once, then connects to the server. If that fails or hangs,
+/// the error is shown on screen with a retry button (no more white screen).
+class BootApp extends StatefulWidget {
+  const BootApp({super.key});
+  @override
+  State<BootApp> createState() => _BootAppState();
+}
+
+class _BootAppState extends State<BootApp> {
+  Repo? repo;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+    setState(() => error = null);
+    try {
+      try {
+        Supabase.instance.client;
+      } catch (_) {
+        await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey).timeout(const Duration(seconds: 20));
+      }
+      if (mounted) setState(() => repo = Repo());
+    } catch (e) {
+      if (mounted) {
+        setState(() => error = e is TimeoutException
+            ? 'Server se judne mein der ho rahi hai. Internet check karke phir try karo.'
+            : 'App shuru nahi ho paaya:\n$e');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (repo != null) return TransWellApp(repo: repo!);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: buildTheme(),
+      home: Scaffold(
+        backgroundColor: C.brand,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset('assets/icon/logo.png', width: 200, height: 200),
+                  const SizedBox(height: 28),
+                  if (error == null)
+                    const CircularProgressIndicator(color: Colors.white)
+                  else ...[
+                    Text(error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 15)),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: C.amber, foregroundColor: C.ink),
+                      onPressed: _start,
+                      child: const Text('Phir se try karo'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class TransWellApp extends StatelessWidget {
@@ -211,16 +299,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(color: C.amber, borderRadius: BorderRadius.circular(16)),
-                      child: const Icon(Icons.local_shipping_outlined, size: 36, color: C.ink),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text('TransWell',
-                        style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Colors.white)),
-                    const SizedBox(height: 6),
+                    Center(child: Image.asset('assets/icon/logo.png', width: 180, height: 180)),
+                    const SizedBox(height: 16),
                     const Text('Trip, hisaab, bilty aur load board — transport ka poora kaam ek app mein',
                         style: TextStyle(fontSize: 17, height: 1.4, color: Color(0xFFDDE1F0))),
                   ],

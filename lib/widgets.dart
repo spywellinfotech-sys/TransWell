@@ -14,16 +14,16 @@ class C {
   static const paper = Color(0xFFF5F3EE);
   static const line = Color(0xFFE3E0D8);
   static const field = Color(0xFFD6D2C8);
-  static const brand = Color(0xFF22306A);
-  static const brandSoft = Color(0xFFE7EAF5);
-  static const brandMuted = Color(0xFFC9CFE6);
+  static const brand = Color(0xFF0B2A6B);
+  static const brandSoft = Color(0xFFE4EBF8);
+  static const brandMuted = Color(0xFFC3D0EC);
   static const recv = Color(0xFF12667F);
   static const recvSoft = Color(0xFFE3F1F5);
   static const pay = Color(0xFFA9461A);
   static const paySoft = Color(0xFFFBEDE5);
-  static const amber = Color(0xFFF2B53A);
-  static const amberSoft = Color(0xFFFDF1D8);
-  static const amberInk = Color(0xFF8A5A00);
+  static const amber = Color(0xFFF7941D);
+  static const amberSoft = Color(0xFFFEEFDD);
+  static const amberInk = Color(0xFF8F4700);
   static const grey = Color(0xFFEDEBE6);
 }
 

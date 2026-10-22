@@ -38,6 +38,10 @@ jobs:
         run: |
           flutter pub get > pub.txt 2>&1 || { tail -30 pub.txt | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
 
+      - name: App icon from logo
+        run: |
+          dart run flutter_launcher_icons > icons.txt 2>&1 || { tail -20 icons.txt | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
+
       - name: Analyze (errors only)
         run: |
           flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1 || {

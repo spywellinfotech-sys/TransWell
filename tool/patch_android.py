@@ -34,3 +34,16 @@ if 'android:scheme="tel"' not in xml:
 xml = re.sub(r'android:label="[^"]*"', 'android:label="TransWell"', xml, count=1)
 open(path, "w", encoding="utf-8").write(xml)
 print("patched", path)
+
+# Launch (before Flutter draws) in the logo's navy instead of white.
+import os
+res = os.path.join(os.path.dirname(path), "res")
+for folder in ("drawable", "drawable-v21"):
+    f = os.path.join(res, folder, "launch_background.xml")
+    if os.path.exists(f):
+        open(f, "w", encoding="utf-8").write(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            '    <item><color android:color="#0B2A6B"/></item>\n'
+            '</layer-list>\n')
+        print("launch background", f)
