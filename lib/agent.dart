@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'bilty.dart';
 import 'cities.dart';
 import 'data.dart';
+import 'register.dart';
 import 'main.dart' show AccountMenu;
 import 'services.dart';
 import 'widgets.dart';
@@ -40,14 +42,15 @@ class _AgentShellState extends State<AgentShell> {
     final pages = [
       AgentHome(onOpenTrips: () => setState(() => index = 1), onRefresh: _refresh),
       TripsScreen(onRefresh: _refresh),
+      BiltyTab(onRefresh: _refresh),
       LedgerTab(onRefresh: _refresh),
       DirectoryScreen(onRefresh: _refresh),
     ];
     return Scaffold(
       body: SafeArea(child: IndexedStack(index: index, children: pages)),
-      floatingActionButton: index <= 1
-          ? AmberFab(label: 'Trip', onPressed: () => openNewTrip(context))
-          : index == 3
+      floatingActionButton: index <= 2
+          ? AmberFab(label: 'Entry', onPressed: () => showEntryMenu(context))
+          : index == 4
               ? AmberFab(label: 'Jodo', onPressed: () => showAddMenu(context))
               : null,
       bottomNavigationBar: NavigationBar(
@@ -57,6 +60,8 @@ class _AgentShellState extends State<AgentShell> {
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
           NavigationDestination(
               icon: Icon(Icons.local_shipping_outlined), selectedIcon: Icon(Icons.local_shipping), label: 'Trips'),
+          NavigationDestination(
+              icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory_2), label: 'Bilty'),
           NavigationDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'Ledger'),
           NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Directory'),
         ],
@@ -65,18 +70,14 @@ class _AgentShellState extends State<AgentShell> {
   }
 }
 
+/// Session flag: the agent hid the getting-started checklist.
+final hideChecklist = ValueNotifier<bool>(false);
+
 void openTrip(BuildContext context, String id) =>
     Navigator.push(context, MaterialPageRoute(builder: (_) => TripDetailScreen(id: id)));
 
-void openNewTrip(BuildContext context) {
-  final r = AppScope.read(context);
-  if (r.parties.isEmpty || r.trucks.isEmpty) {
-    toast(context, 'Pehle Directory mein kam se kam ek party aur ek truck jodo');
-    showAddMenu(context);
-    return;
-  }
-  Navigator.push(context, MaterialPageRoute(builder: (_) => const NewTripScreen()));
-}
+void openNewTrip(BuildContext context) =>
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const QuickEntryScreen()));
 
 // ---------------------------------------------------------------------------
 // Add party / owner / truck
@@ -102,6 +103,19 @@ Future<void> showAddMenu(BuildContext context) async {
               leading: const Icon(Icons.local_shipping_outlined),
               title: const Text('Truck + driver'),
               onTap: () => Navigator.pop(ctx, 2)),
+          const Divider(height: 1),
+          ListTile(
+              leading: const Icon(Icons.history_edu_outlined),
+              title: const Text('Register ka purana baaki chadhao'),
+              onTap: () => Navigator.pop(ctx, 3)),
+          ListTile(
+              leading: const Icon(Icons.upload_file_outlined),
+              title: const Text('Excel / CSV se ek saath'),
+              onTap: () => Navigator.pop(ctx, 4)),
+          ListTile(
+              leading: const Icon(Icons.send_outlined),
+              title: const Text('Party / driver ko app bhejo'),
+              onTap: () => Navigator.pop(ctx, 5)),
         ],
       ),
     ),
@@ -110,57 +124,99 @@ Future<void> showAddMenu(BuildContext context) async {
   if (choice == 0) await addPartySheet(context);
   if (choice == 1) await addOwnerSheet(context);
   if (choice == 2) await addTruckSheet(context);
+  if (choice == 3) {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const OpeningBalanceScreen(parties: true)));
+  }
+  if (choice == 4) await Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportScreen()));
+  if (choice == 5) await showInviteList(context);
 }
 
-Future<void> addPartySheet(BuildContext context) async {
+Future<void> addPartySheet(BuildContext context, {Party? edit}) async {
   final r = AppScope.read(context);
-  final name = TextEditingController(), city = TextEditingController(), phone = TextEditingController();
+  final name = TextEditingController(text: edit?.name),
+      city = TextEditingController(text: edit?.city),
+      phone = TextEditingController(text: edit?.phone),
+      opening = TextEditingController(text: (edit?.opening ?? 0) == 0 ? '' : edit!.opening.toString());
   await showFormSheet(
     context,
-    title: 'Nayi party',
+    title: edit == null ? 'Nayi party' : 'Party badlo',
     fields: (_) => [
       Field(name, 'Party / firm ka naam'),
       Field(city, 'City'),
       Field(phone, 'Mobile number', phone: true, hint: 'Isi number se party app mein apna maal track karegi'),
+      contactButton(context, name, phone),
+      Field(opening, 'Register ka purana baaki ₹ (optional)', number: true),
+      if (edit != null)
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: C.pay),
+          onPressed: () async {
+            final err = await r.deleteParty(edit.id);
+            if (context.mounted) toast(context, err ?? 'Party hata di');
+          },
+          child: const Text('Party hatao'),
+        ),
     ],
     onSave: () async {
       if (name.text.trim().isEmpty) return 'Naam bharo';
-      await r.addParty(name.text.trim(), city.text.trim(), phone.text);
+      final o = int.tryParse(opening.text.replaceAll(RegExp(r'[^0-9-]'), '')) ?? 0;
+      if (edit == null) {
+        await r.addParty(name.text.trim(), city.text.trim(), phone.text, opening: o);
+      } else {
+        await r.updateParty(edit.id, name: name.text.trim(), city: city.text.trim(), phone: phone.text, opening: o);
+      }
       return null;
     },
   );
 }
 
-Future<void> addOwnerSheet(BuildContext context) async {
+Future<void> addOwnerSheet(BuildContext context, {TruckOwner? edit}) async {
   final r = AppScope.read(context);
-  final name = TextEditingController(), phone = TextEditingController();
+  final name = TextEditingController(text: edit?.name),
+      phone = TextEditingController(text: edit?.phone),
+      opening = TextEditingController(text: (edit?.opening ?? 0) == 0 ? '' : edit!.opening.toString());
   await showFormSheet(
     context,
-    title: 'Naya truck owner',
+    title: edit == null ? 'Naya gaadi malik' : 'Gaadi malik badlo',
     fields: (_) => [
       Field(name, 'Owner / transport ka naam'),
       Field(phone, 'Mobile number', phone: true, hint: 'Isi number se owner apna hisaab dekhega'),
+      contactButton(context, name, phone),
+      Field(opening, 'Register ka purana baaki ₹ (optional)', number: true),
+      if (edit != null)
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: C.pay),
+          onPressed: () async {
+            final err = await r.deleteOwner(edit.id);
+            if (context.mounted) toast(context, err ?? 'Hata diya');
+          },
+          child: const Text('Gaadi malik hatao'),
+        ),
     ],
     onSave: () async {
       if (name.text.trim().isEmpty) return 'Naam bharo';
-      await r.addOwner(name.text.trim(), phone.text);
+      final o = int.tryParse(opening.text.replaceAll(RegExp(r'[^0-9-]'), '')) ?? 0;
+      if (edit == null) {
+        await r.addOwner(name.text.trim(), phone.text, opening: o);
+      } else {
+        await r.updateOwner(edit.id, name: name.text.trim(), phone: phone.text, opening: o);
+      }
       return null;
     },
   );
 }
 
-Future<void> addTruckSheet(BuildContext context) async {
+Future<void> addTruckSheet(BuildContext context, {Truck? edit}) async {
   final r = AppScope.read(context);
-  final number = TextEditingController(),
-      cap = TextEditingController(),
-      driver = TextEditingController(),
-      dphone = TextEditingController(),
-      routes = TextEditingController();
-  var type = 'Open body';
-  String? ownerId = r.owners.isEmpty ? null : r.owners.first.id;
+  final number = TextEditingController(text: edit?.number),
+      cap = TextEditingController(text: edit?.capacityTon?.toString()),
+      driver = TextEditingController(text: edit?.driver),
+      dphone = TextEditingController(text: edit?.driverPhone),
+      routes = TextEditingController(text: edit?.routes.join(', '));
+  var type = edit?.type.isNotEmpty == true ? edit!.type : 'Open body';
+  String? ownerId = edit != null ? edit.ownerId : (r.owners.isEmpty ? null : r.owners.first.id);
   await showFormSheet(
     context,
-    title: 'Naya truck',
+    title: edit == null ? 'Naya truck' : 'Truck badlo',
     fields: (setSt) => [
       Field(number, 'Truck number', hint: 'RJ14 GB 4821'),
       Wrap(spacing: 8, children: [
@@ -180,10 +236,31 @@ Future<void> addTruckSheet(BuildContext context) async {
       ),
       Field(driver, 'Driver ka naam'),
       Field(dphone, 'Driver ka mobile', phone: true, hint: 'Isi number se driver app mein trip dekhega'),
+      contactButton(context, driver, dphone),
       Field(routes, 'Routes (comma se)', hint: 'Delhi–Jaipur, Delhi–Ajmer'),
+      if (edit != null)
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: C.pay),
+          onPressed: () async {
+            final err = await r.deleteTruck(edit.id);
+            if (context.mounted) toast(context, err ?? 'Truck hata diya');
+          },
+          child: const Text('Truck hatao'),
+        ),
     ],
     onSave: () async {
       if (number.text.trim().isEmpty) return 'Truck number bharo';
+      if (edit != null) {
+        await r.updateTruck(edit.id,
+            number: number.text.trim(),
+            type: type,
+            capacity: double.tryParse(cap.text.trim()),
+            ownerId: ownerId,
+            driver: driver.text.trim(),
+            driverPhone: dphone.text,
+            routes: routes.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList());
+        return null;
+      }
       await r.addTruck(
         number: number.text.trim(),
         type: type,
@@ -225,6 +302,8 @@ class AgentHome extends StatelessWidget {
                     Text('Namaste, ${s.myName} ji', style: const TextStyle(fontSize: 13, color: C.muted)),
                     Text(s.office?.name ?? 'Mera office',
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    if (s.office != null)
+                      Text(s.office!.kindLabel, style: const TextStyle(fontSize: 12, color: C.muted)),
                   ],
                 ),
               ),
@@ -273,6 +352,66 @@ class AgentHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          ValueListenableBuilder<bool>(
+            valueListenable: hideChecklist,
+            builder: (context, hidden, _) => hidden || s.trips.length + s.bilties.length >= 5
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: StartChecklist(onHide: () => hideChecklist.value = true),
+                  ),
+          ),
+          if (s.bilties.isNotEmpty || !(s.office?.isAgent ?? true)) ...[
+            Row(children: [
+              Expanded(
+                child: Panel(
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => Scaffold(
+                              appBar: AppBar(title: const Text('Godown')), body: BiltyTab(onRefresh: s.refreshOffice)))),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('GODOWN MEIN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: C.brand)),
+                    Text('${s.godown.length} bilty', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    Text('${s.godown.fold(0.0, (a, c) => a + c.tons).toStringAsFixed(1)} ton',
+                        style: const TextStyle(fontSize: 12, color: C.muted)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Panel(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('TO-PAY VASOOLI', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: C.pay)),
+                    FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(inr(s.toPayTotal), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700))),
+                    Text('${s.toPayPending.length} bilty', style: const TextStyle(fontSize: 12, color: C.muted)),
+                  ]),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+          ],
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            ActionChip(
+              avatar: const Icon(Icons.table_chart_outlined, size: 18),
+              label: const Text('Register'),
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen())),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.history_edu_outlined, size: 18),
+              label: const Text('Purana baaki'),
+              onPressed: () =>
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const OpeningBalanceScreen(parties: true))),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.send_outlined, size: 18),
+              label: const Text('App bhejo'),
+              onPressed: () => showInviteList(context),
+            ),
+          ]),
+          const SizedBox(height: 12),
           Panel(
             color: C.amberSoft,
             borderColor: C.amber,
@@ -291,9 +430,9 @@ class AgentHome extends StatelessWidget {
           SectionTitle('Chalte trips', action: 'Sab dekho', onAction: onOpenTrips),
           if (s.trips.isEmpty)
             EmptyNote(
-              'Abhi koi trip nahi hai. Directory mein party aur truck jodo, phir neeche "+ Trip" dabao.',
-              action: 'Party / truck jodo',
-              onAction: () => showAddMenu(context),
+              'Abhi koi trip nahi hai. Neeche "+ Entry" dabao aur register jaisi line bharo — party aur gaadi apne aap ban jaayenge.',
+              action: 'Pehli entry karo',
+              onAction: () => showEntryMenu(context),
             )
           else if (s.activeTrips.isEmpty)
             const Padding(
@@ -395,7 +534,7 @@ class _TripsScreenState extends State<TripsScreen> {
     final s = AppScope.of(context);
     final q = query.toLowerCase();
     final list = s.trips.where((t) {
-      final hay = '${t.lr} ${t.route} ${s.partyName(t.partyId)} ${s.truckNo(t.truckId)}'.toLowerCase();
+      final hay = '${t.lr} ${t.route} ${s.partyName(t.partyId)} ${s.truckNo(t.truckId)} ${t.bilties.map((c) => s.partyName(c.partyId)).join(' ')}'.toLowerCase();
       if (q.isNotEmpty && !hay.contains(q)) return false;
       return switch (filter) {
         1 => t.partyBalance > 0 || t.ownerBalance > 0,
@@ -412,8 +551,11 @@ class _TripsScreenState extends State<TripsScreen> {
           Row(
             children: [
               const Expanded(child: Text('Trips', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
-              Text('${monthYear(DateTime.now())} · ${s.monthTrips.length} trips',
-                  style: const TextStyle(fontSize: 13, color: C.muted)),
+              TextButton.icon(
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                icon: const Icon(Icons.table_chart_outlined, size: 18),
+                label: Text('Register · ${s.monthTrips.length}'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -669,12 +811,43 @@ class TripDetailScreen extends StatelessWidget {
     final left = kmLeft(t.to, t.lastLat, t.lastLng);
     return Scaffold(
       appBar: AppBar(
-        title: Text('LR ${t.lr}'),
+        title: Text('${t.isPart ? 'Part load · ' : ''}LR ${t.lr}'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: () => s.refreshOffice(),
             icon: const Icon(Icons.refresh),
+          ),
+          PopupMenuButton<int>(
+            onSelected: (v) async {
+              if (v == 1) {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => QuickEntryScreen(edit: t)));
+              } else if (v == 2) {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => QuickEntryScreen(copyFrom: t)));
+              } else if (v == 3) {
+                if (t.bilties.isNotEmpty) {
+                  toast(context, 'Pehle bilty gaadi se utaaro');
+                  return;
+                }
+                final ok = await confirm(context, 'LR ${t.lr} hatana hai?', 'Iske saare payment bhi hat jaayenge.');
+                if (!ok || !context.mounted) return;
+                try {
+                  await s.deleteTrip(t);
+                  if (context.mounted) Navigator.pop(context);
+                } catch (e) {
+                  if (context.mounted) toast(context, friendlyError(e));
+                }
+              } else if (v == 4) {
+                final ok = await confirm(context, 'Kata hatana hai?', 'Party aur owner dono ka kata 0 ho jaayega.');
+                if (ok) await s.clearDeductions(t);
+              }
+            },
+            itemBuilder: (_) => [
+              if (!t.isPart) const PopupMenuItem(value: 1, child: Text('Entry badlo')),
+              if (!t.isPart) const PopupMenuItem(value: 2, child: Text('Isi jaisa naya trip')),
+              if (t.partyDeduction > 0 || t.ownerDeduction > 0) const PopupMenuItem(value: 4, child: Text('Kata hatao')),
+              const PopupMenuItem(value: 3, child: Text('Trip hatao')),
+            ],
           ),
         ],
       ),
@@ -710,9 +883,10 @@ class TripDetailScreen extends StatelessWidget {
                 children: [
                   Text(t.route, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 2),
-                  Text('${dm(t.date)} · ${t.material} · ${ton(t.weightTon)}',
+                  Text(t.isPart ? '${dm(t.date)} · Part load' : '${dm(t.date)} · ${t.material} · ${ton(t.weightTon)}',
                       style: const TextStyle(fontSize: 13, color: C.muted)),
-                  Text('${party?.name ?? ''} → ${t.consignee}', style: const TextStyle(fontSize: 13, color: C.muted)),
+                  if (!t.isPart)
+                    Text('${party?.name ?? ''} → ${t.consignee}', style: const TextStyle(fontSize: 13, color: C.muted)),
                   if (t.status.isMoving)
                     TextButton.icon(
                       style: TextButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: C.recv),
@@ -756,6 +930,24 @@ class TripDetailScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            if (t.isPart) ...[
+              PartLoadSection(t: t),
+              const SizedBox(height: 12),
+              Panel(
+                topBar: C.pay,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('GAADI KA HISAAB', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: C.pay)),
+                    KV('Gaadi bhada', num0(t.hire)),
+                    KV('Diya', '− ${num0(t.ownerPaid)}'),
+                    if (t.ownerDeduction > 0) KV('Kata', '− ${num0(t.ownerDeduction)}'),
+                    const Divider(height: 10, color: C.line),
+                    KV('Dena hai', inr(t.ownerBalance), bold: true, vColor: C.pay),
+                  ],
+                ),
+              ),
+            ] else
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -836,6 +1028,27 @@ class TripDetailScreen extends StatelessWidget {
                 ),
               ],
             ),
+            if (t.payments.isNotEmpty) ...[
+              const SectionTitle('Payments (galat ho toh daba ke rakho = hatao)'),
+              Panel(
+                padding: EdgeInsets.zero,
+                child: Column(children: [
+                  for (final pay in t.payments)
+                    ListTile(
+                      dense: true,
+                      title: Text('${pay.side == 'party' ? 'Party se mila' : 'Gaadi ko diya'} · ${pay.mode}'
+                          '${pay.note.isEmpty ? '' : ' · ${pay.note}'}'),
+                      subtitle: Text(dm(pay.date)),
+                      trailing: Text(inr(pay.amount),
+                          style: TextStyle(fontWeight: FontWeight.w700, color: pay.side == 'party' ? C.recv : C.pay)),
+                      onLongPress: () async {
+                        final ok = await confirm(context, '${inr(pay.amount)} ki entry hatani hai?', 'Hisaab se hat jaayegi.');
+                        if (ok) await s.deletePayment(pay);
+                      },
+                    ),
+                ]),
+              ),
+            ],
           ],
         ),
       ),
@@ -850,7 +1063,14 @@ class TripDetailScreen extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton.icon(
+                child: t.isPart
+                    ? FilledButton.icon(
+                        onPressed: () => Navigator.push(
+                            context, MaterialPageRoute(builder: (_) => BiltyFormScreen(tripId: t.id))),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Nayi bilty'),
+                      )
+                    : FilledButton.icon(
                   onPressed: () => sharePdf(context, () => biltyPdf(biltyFor(s, t)), 'Bilty-LR-${t.lr}.pdf'),
                   icon: const Icon(Icons.share_outlined, size: 18),
                   label: const Text('Bilty PDF'),
@@ -915,7 +1135,7 @@ class StatusStepper extends StatelessWidget {
 
 Future<void> showPaymentSheet(BuildContext context, Trip t) async {
   final s = AppScope.read(context);
-  var kind = 0; // 0 party paid, 1 owner paid, 2 shortage
+  var kind = t.isPart ? 1 : 0; // 0 party paid, 1 owner paid, 2 shortage
   var mode = 'UPI';
   var both = true;
   final amount = TextEditingController();
@@ -925,10 +1145,10 @@ Future<void> showPaymentSheet(BuildContext context, Trip t) async {
     fields: (setSt) => [
       SegmentedButton<int>(
         showSelectedIcon: false,
-        segments: const [
-          ButtonSegment(value: 0, label: Text('Party se mila')),
-          ButtonSegment(value: 1, label: Text('Owner ko diya')),
-          ButtonSegment(value: 2, label: Text('Kata')),
+        segments: [
+          if (!t.isPart) const ButtonSegment(value: 0, label: Text('Party se mila')),
+          const ButtonSegment(value: 1, label: Text('Gaadi ko diya')),
+          const ButtonSegment(value: 2, label: Text('Kata')),
         ],
         selected: {kind},
         onSelectionChanged: (v) => setSt(() => kind = v.first),
@@ -968,7 +1188,12 @@ Future<void> showPaymentSheet(BuildContext context, Trip t) async {
       final a = int.tryParse(amount.text.replaceAll(',', '').trim()) ?? 0;
       if (a <= 0) return 'Amount daalo';
       if (kind == 2) {
-        await s.addDeduction(t, amount: a, bothSides: both);
+        if (t.isPart) {
+          await s.db.from('trips').update({'owner_deduction': t.ownerDeduction + a}).eq('id', t.id);
+          await s.refreshOffice();
+        } else {
+          await s.addDeduction(t, amount: a, bothSides: both);
+        }
       } else {
         await s.addPayment(t, party: kind == 0, amount: a, mode: mode);
       }
@@ -994,6 +1219,21 @@ class LedgerTab extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           const Text('Ledger', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            ActionChip(
+              avatar: const Icon(Icons.history_edu_outlined, size: 18),
+              label: const Text('Parties ka purana baaki'),
+              onPressed: () =>
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const OpeningBalanceScreen(parties: true))),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.history_edu_outlined, size: 18),
+              label: const Text('Gaadi malik ka purana baaki'),
+              onPressed: () =>
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const OpeningBalanceScreen(parties: false))),
+            ),
+          ]),
           const SectionTitle('Parties (lena hai)'),
           if (s.parties.isEmpty) const EmptyNote('Abhi koi party nahi. Directory se jodo.'),
           for (final p in s.parties)
@@ -1153,7 +1393,7 @@ class PartyLedgerScreen extends StatelessWidget {
                 children: [
                   for (var i = 0; i < entries.length; i++)
                     InkWell(
-                      onTap: () => openTrip(context, entries[i].tripId),
+                      onTap: entries[i].tripId.isEmpty ? null : () => openTrip(context, entries[i].tripId),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                         decoration: BoxDecoration(
@@ -1224,9 +1464,10 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
 
   bool _match(String s) => q.isEmpty || s.toLowerCase().contains(q.toLowerCase());
 
-  Widget _row(String title, String sub, Widget trailing) => Padding(
+  Widget _row(String title, String sub, Widget trailing, {VoidCallback? onTap}) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Panel(
+          onTap: onTap,
           child: Row(
             children: [
               Expanded(
@@ -1250,13 +1491,15 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
     final rows = <Widget>[];
     if (tab == 0) {
       for (final p in s.parties.where((p) => _match('${p.name} ${p.city}'))) {
-        rows.add(_row(p.name, '${p.city} · ${p.phone}', CallButton(name: p.name, phone: p.phone)));
+        rows.add(_row(p.name, '${p.city} · ${p.phone}${p.opening != 0 ? ' · purana ${inr(p.opening)}' : ''}',
+            CallButton(name: p.name, phone: p.phone), onTap: () => addPartySheet(context, edit: p)));
       }
       if (s.parties.isEmpty) rows.add(EmptyNote('Koi party nahi', action: 'Party jodo', onAction: () => addPartySheet(context)));
     } else if (tab == 1) {
       for (final o in s.owners.where((o) => _match(o.name))) {
         final n = s.trucks.where((t) => t.ownerId == o.id).length;
-        rows.add(_row(o.name, '$n gaadi · ${o.phone}', CallButton(name: o.name, phone: o.phone)));
+        rows.add(_row(o.name, '$n gaadi · ${o.phone}${o.opening != 0 ? ' · purana ${inr(o.opening)}' : ''}',
+            CallButton(name: o.name, phone: o.phone), onTap: () => addOwnerSheet(context, edit: o)));
       }
       if (s.owners.isEmpty) rows.add(EmptyNote('Koi truck owner nahi', action: 'Owner jodo', onAction: () => addOwnerSheet(context)));
     } else if (tab == 2) {
@@ -1266,6 +1509,7 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
         rows.add(Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Panel(
+            onTap: () => addTruckSheet(context, edit: t),
             child: Row(
               children: [
                 Expanded(
@@ -1307,7 +1551,15 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         children: [
-          const Text('Directory', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+          Row(children: [
+            const Expanded(child: Text('Directory', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
+            TextButton.icon(
+              onPressed: () => showInviteList(context),
+              icon: const Icon(Icons.send_outlined, size: 18),
+              label: const Text('App bhejo'),
+            ),
+          ]),
+          const Text('Kisi naam pe tap karo toh badal / hata sakte ho', style: TextStyle(fontSize: 12, color: C.muted)),
           const SizedBox(height: 12),
           SegmentedButton<int>(
             showSelectedIcon: false,
@@ -1458,6 +1710,12 @@ class TruckPostCard extends StatelessWidget {
             Text(
                 '${p.type}${p.capacityTon == null ? '' : ' · ${p.capacityTon!.round()} ton'} · ${p.area}${km == null ? '' : ' · $km km'}',
                 style: const TextStyle(fontSize: 14)),
+            if (p.spaceTon != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Pill('Part load: ${p.spaceTon!.toStringAsFixed(p.spaceTon! % 1 == 0 ? 0 : 1)} ton jagah khaali',
+                    fg: C.amberInk, bg: C.amberSoft),
+              ),
             if (p.wantTo.isNotEmpty) ...[
               const SizedBox(height: 6),
               Wrap(
@@ -1512,6 +1770,7 @@ class LoadCard extends StatelessWidget {
             Row(children: [
               Expanded(
                   child: Text('${l.from} → ${l.to}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+              if (l.isPart) const Padding(padding: EdgeInsets.only(right: 6), child: Pill('Part', fg: C.amberInk, bg: C.amberSoft)),
               Text(ago(l.createdAt), style: const TextStyle(fontSize: 12, color: C.muted)),
             ]),
             const SizedBox(height: 4),
@@ -1567,6 +1826,7 @@ class _PostLoadScreenState extends State<PostLoadScreen> {
   final rate = TextEditingController();
   String type = 'Koi bhi';
   bool showPhone = true;
+  bool part = false;
   bool saving = false;
 
   @override
@@ -1596,6 +1856,22 @@ class _PostLoadScreenState extends State<PostLoadScreen> {
           two(Field(from, 'Loading kahan'), Field(to, 'Kahan jaana hai')),
           const SizedBox(height: 12),
           two(Field(material, 'Maal'), Field(weight, 'Weight (ton)', number: true)),
+          const SizedBox(height: 10),
+          SegmentedButton<bool>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: false, label: Text('Full load')),
+              ButtonSegment(value: true, label: Text('Part load')),
+            ],
+            selected: {part},
+            onSelectionChanged: (v) => setState(() => part = v.first),
+          ),
+          if (part)
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text('Jin gaadiyon mein thodi jagah khaali hai, unko bhi dikhega',
+                  style: TextStyle(fontSize: 12, color: C.muted)),
+            ),
           const SizedBox(height: 14),
           const Text('Gaadi kaisi chahiye',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.muted)),
@@ -1655,6 +1931,7 @@ class _PostLoadScreenState extends State<PostLoadScreen> {
                         date: date.text.trim(),
                         rate: int.tryParse(rate.text.replaceAll(',', '').trim()),
                         showPhone: showPhone,
+                        part: part,
                       );
                       if (!context.mounted) return;
                       Navigator.pop(context);

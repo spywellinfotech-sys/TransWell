@@ -6,3 +6,7 @@ const supabaseAnonKey =
 
 /// Domain used to turn a phone number into a login id (phone@domain).
 const phoneLoginDomain = 'phone.transwell.app';
+
+/// Link sent in WhatsApp invites. The GitHub repo is private, so replace this
+/// with the Play Store link (or another public download page) before inviting.
+const appDownloadLink = 'https://github.com/spywellinfotech-sys/TransWell/releases/latest';

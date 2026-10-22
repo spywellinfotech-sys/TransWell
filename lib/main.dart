@@ -289,6 +289,7 @@ class RoleScreen extends StatefulWidget {
 
 class _RoleScreenState extends State<RoleScreen> {
   Role? role;
+  String kind = 'agent';
   bool busy = false;
   final officeName = TextEditingController();
   final person = TextEditingController();
@@ -297,10 +298,10 @@ class _RoleScreenState extends State<RoleScreen> {
   final gst = TextEditingController();
 
   static const _options = [
-    (Role.agent, 'Commission agent', 'Transporter / broker, office chalate hain'),
+    (Role.agent, 'Transport office', 'Commission agent, goods transport ya parcel service'),
     (Role.owner, 'Truck owner', 'Meri apni gaadiyan hain'),
     (Role.driver, 'Driver', 'Main gaadi chalata hoon'),
-    (Role.shipper, 'Shipper', 'Mera maal bhejna hota hai'),
+    (Role.shipper, 'Shipper / receiver', 'Maal ya parcel bhejta / mangata hoon'),
   ];
 
   @override
@@ -348,6 +349,7 @@ class _RoleScreenState extends State<RoleScreen> {
             phone: r.profile?.phone ?? '',
             gst: gst.text.trim(),
             startLr: int.tryParse(startLr.text.trim()) ?? 1001,
+            kind: kind,
           );
         }
       } else {
@@ -420,6 +422,28 @@ class _RoleScreenState extends State<RoleScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Text('Office ki jaankari', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 10),
+                    const Text('Aapka kaam', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: C.muted)),
+                    const SizedBox(height: 6),
+                    SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: 'agent', label: Text('Commission agent')),
+                        ButtonSegment(value: 'transport', label: Text('Goods transport')),
+                        ButtonSegment(value: 'parcel', label: Text('Parcel')),
+                      ],
+                      selected: {kind},
+                      onSelectionChanged: (v) => setState(() => kind = v.first),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      switch (kind) {
+                        'transport' => 'Bilty booking, godown, part load gaadi, to-pay vasooli',
+                        'parcel' => 'Parcel booking (nag / kg), lene wale ko tracking, delivery pe vasooli',
+                        _ => 'Party aur gaadi ke beech deal, commission, full + part load',
+                      },
+                      style: const TextStyle(fontSize: 12, color: C.muted),
+                    ),
                     const SizedBox(height: 10),
                     Field(officeName, 'Office / firm ka naam'),
                     const SizedBox(height: 10),

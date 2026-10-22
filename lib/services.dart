@@ -112,7 +112,13 @@ class BiltyData {
   final double weight;
   final int freight;
   final int advance;
+  final String payNote; // e.g. "To-pay" / "Paid"
+  final String weightText;
+  final String title;
   BiltyData({
+    this.payNote = '',
+    this.weightText = '',
+    this.title = 'LORRY RECEIPT (BILTY)',
     required this.officeName,
     required this.officePhone,
     required this.officeCity,
@@ -158,7 +164,8 @@ Future<Uint8List> biltyPdf(BiltyData b) async {
         pw.SizedBox(height: 8),
         pw.Row(children: [
           pw.Expanded(
-              child: pw.Text('LORRY RECEIPT (BILTY)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold))),
+              child: pw.Text(b.payNote.isEmpty ? b.title : '${b.title} · ${b.payNote.toUpperCase()}',
+                  style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold))),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
             pw.Text('LR No. ${b.lr}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
             pw.Text(fullDate(b.date), style: const pw.TextStyle(fontSize: 9)),
@@ -192,7 +199,7 @@ Future<Uint8List> biltyPdf(BiltyData b) async {
             ]),
             pw.TableRow(children: [
               pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(b.material)),
-              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(ton(b.weight))),
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(b.weightText.isNotEmpty ? b.weightText : ton(b.weight))),
               pw.Padding(
                   padding: const pw.EdgeInsets.all(6), child: pw.Text(rs(b.freight), textAlign: pw.TextAlign.right)),
             ]),
@@ -207,7 +214,7 @@ Future<Uint8List> biltyPdf(BiltyData b) async {
               _kv('Freight', rs(b.freight)),
               _kv('Advance', rs(b.advance)),
               pw.Divider(height: 6),
-              _kv('Balance (to pay)', rs(b.freight - b.advance), bold: true),
+              _kv(b.payNote == 'To-pay' ? 'To-pay (receiver pays)' : 'Balance', rs(b.freight - b.advance), bold: true),
             ]),
           ),
         ),
@@ -293,4 +300,65 @@ Future<void> sharePdf(BuildContext context, Future<Uint8List> Function() build, 
   } catch (e) {
     if (context.mounted) toast(context, 'PDF nahi ban paaya: ${friendlyError(e)}');
   }
+}
+
+
+class ChallanLine {
+  final int lr;
+  final String party;
+  final String consignee;
+  final String to;
+  final String material;
+  final String packages;
+  final String weight;
+  final String payType;
+  final int toPay;
+  ChallanLine(this.lr, this.party, this.consignee, this.to, this.material, this.packages, this.weight, this.payType,
+      this.toPay);
+}
+
+/// Loading challan / manifest for a part-load truck.
+Future<Uint8List> challanPdf({
+  required String officeName,
+  required String officePhone,
+  required int tripLr,
+  required DateTime date,
+  required String truckNo,
+  required String driver,
+  required String from,
+  required String to,
+  required List<ChallanLine> lines,
+}) async {
+  final doc = pw.Document(title: 'Challan $tripLr');
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    margin: const pw.EdgeInsets.all(28),
+    build: (ctx) => [
+      pw.Text(officeName.toUpperCase(), style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold)),
+      pw.Text('Ph $officePhone', style: const pw.TextStyle(fontSize: 10)),
+      pw.SizedBox(height: 8),
+      pw.Text('LOADING CHALLAN No. $tripLr · ${fullDate(date)}',
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+      pw.Text('Truck $truckNo · Driver $driver · $from to $to', style: const pw.TextStyle(fontSize: 10)),
+      pw.SizedBox(height: 10),
+      pw.TableHelper.fromTextArray(
+        headers: ['LR', 'Consignor', 'Consignee', 'To', 'Material', 'Pkgs', 'Weight', 'Type', 'To-pay Rs.'],
+        data: [
+          for (final l in lines)
+            ['${l.lr}', l.party, l.consignee, l.to, l.material, l.packages, l.weight, l.payType, l.toPay == 0 ? '' : num0(l.toPay)],
+          ['TOTAL', '${lines.length} bilty', '', '', '', '', '', '', num0(lines.fold(0, (s, l) => s + l.toPay))],
+        ],
+        headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
+        cellStyle: const pw.TextStyle(fontSize: 8.5),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+      ),
+      pw.SizedBox(height: 30),
+      pw.Row(children: [
+        pw.Expanded(child: _sign('Driver signature')),
+        pw.SizedBox(width: 40),
+        pw.Expanded(child: _sign('For $officeName')),
+      ]),
+    ],
+  ));
+  return doc.save();
 }

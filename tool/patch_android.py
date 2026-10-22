@@ -10,6 +10,7 @@ perms = [
     "android.permission.INTERNET",
     "android.permission.ACCESS_FINE_LOCATION",
     "android.permission.ACCESS_COARSE_LOCATION",
+    "android.permission.READ_CONTACTS",
 ]
 for p in perms:
     if p not in xml:

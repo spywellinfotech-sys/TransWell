@@ -101,6 +101,7 @@ class _OwnerHomeState extends State<OwnerHome> {
     final number0 = TextEditingController(text: number);
     final cap = TextEditingController();
     final want = TextEditingController();
+    final space = TextEditingController();
     var t = type.isEmpty ? 'Open body' : type;
     await showFormSheet(
       context,
@@ -113,6 +114,7 @@ class _OwnerHomeState extends State<OwnerHome> {
         ]),
         Field(cap, 'Capacity (ton)', number: true),
         Field(want, 'Kis taraf jaana hai (comma se)', hint: 'Delhi, Punjab'),
+        Field(space, 'Thodi jagah khaali? kitne ton (part load ke liye)', number: true),
         Text(
           r.myLat == null
               ? 'Location band hai — gaadi ki jagah nahi dikhegi. Location chalu karke post karna behtar hai.'
@@ -127,6 +129,7 @@ class _OwnerHomeState extends State<OwnerHome> {
           type: t,
           capacity: double.tryParse(cap.text.trim()),
           wantTo: want.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+          spaceTon: double.tryParse(space.text.trim()),
         );
         return null;
       },
@@ -706,6 +709,7 @@ class _ShipperHomeState extends State<ShipperHome> {
       byOffice[t.officeName] = ((cur?.$1 ?? 0) + t.balance, t.officePhone);
     }
     final myLoads = s.loads.where((l) => s.isMine(l.postedBy)).toList();
+    final parcels = s.linkedBilties;
     return Scaffold(
       floatingActionButton: AmberFab(
         label: 'Load post karo',
@@ -719,7 +723,11 @@ class _ShipperHomeState extends State<ShipperHome> {
             children: [
               _Header(s.myName, 'Mera maal kahan hai'),
               const SizedBox(height: 12),
-              if (mine.isEmpty) const _NotLinkedNote('party'),
+              if (mine.isEmpty && parcels.isEmpty) const _NotLinkedNote('party ya lene wale'),
+              if (parcels.isNotEmpty) ...[
+                const SectionTitle('Mere parcel / bilty'),
+                for (final c in parcels) _ParcelCard(c: c),
+              ],
               for (final t in active)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -852,6 +860,87 @@ class _ShipperHomeState extends State<ShipperHome> {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _ParcelCard extends StatelessWidget {
+  final LinkedConsignment c;
+  const _ParcelCard({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    final left = kmLeft(c.to, c.lastLat, c.lastLng);
+    final color = switch (c.status) { 'delivered' => C.recv, 'loaded' => C.brand, _ => C.subtle };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Panel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Expanded(
+                child: Text(
+                    '${c.relation == 'sender' ? 'Bheja' : 'Aa raha hai'} · ${c.isParcel ? 'Parcel' : 'Bilty'} LR ${c.lr} · ${c.officeName}',
+                    style: const TextStyle(fontSize: 12, color: C.muted)),
+              ),
+              Pill(c.statusLabel, fg: color, bg: C.grey),
+            ]),
+            const SizedBox(height: 4),
+            Text(c.route, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            Text(
+                '${c.relation == 'sender' ? 'Lene wala: ${c.consignee}' : 'Bhejne wala: ${c.partyName}'} · ${c.material}'
+                '${c.packages == null ? '' : ' · ${c.packages} nag'}',
+                style: const TextStyle(fontSize: 13, color: C.muted)),
+            if (c.status == 'loaded')
+              Text(
+                  c.lastLat == null
+                      ? 'Gaadi ${c.truckNumber} mein raste mein'
+                      : 'Abhi: ${nearLabel(c.lastLat!, c.lastLng!)}${left == null ? '' : ' · $left km bacha'} · ${ago(c.lastAt!)}',
+                  style: const TextStyle(fontSize: 13, color: C.recv, fontWeight: FontWeight.w600)),
+            if (c.status == 'delivered')
+              Text('Pahunch gaya${c.deliveredTo.isEmpty ? '' : ' · ${c.deliveredTo} ne liya'}',
+                  style: const TextStyle(fontSize: 13, color: C.recv, fontWeight: FontWeight.w600)),
+            if (c.freight != null && c.balance > 0)
+              Text('Aapko dena hai: ${inr(c.balance)}${c.payType == 'to_pay' ? ' (delivery pe)' : ''}',
+                  style: const TextStyle(fontSize: 13, color: C.pay, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(spacing: 8, children: [
+              if (c.status == 'loaded' && c.lastLat != null)
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => TrackingScreen(
+                                title: c.truckNumber,
+                                subtitle: 'LR ${c.lr} · ${c.route}',
+                                from: c.from,
+                                to: c.to,
+                                lat: c.lastLat,
+                                lng: c.lastLng,
+                                at: c.lastAt,
+                                driver: c.driverName,
+                                driverPhone: c.driverPhone,
+                              ))),
+                  icon: const Icon(Icons.map_outlined, size: 18),
+                  label: const Text('Map'),
+                ),
+              if (c.podPath != null)
+                OutlinedButton.icon(
+                  onPressed: () => showPodPhoto(context, c.podPath!),
+                  icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                  label: const Text('POD'),
+                ),
+              OutlinedButton.icon(
+                onPressed: () => callPhone(context, c.officePhone),
+                icon: const Icon(Icons.call_outlined, size: 18),
+                label: const Text('Office'),
+              ),
+            ]),
+          ],
         ),
       ),
     );

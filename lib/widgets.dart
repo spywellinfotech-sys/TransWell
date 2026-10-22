@@ -325,10 +325,12 @@ class TripTile extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('${s.partyName(trip.partyId)} · ${s.truckNo(trip.truckId)}',
+                  child: Text(
+                      '${trip.isPart ? 'Part load · ${trip.bilties.length} bilty' : s.partyName(trip.partyId)} · ${s.truckNo(trip.truckId)}',
                       style: const TextStyle(fontSize: 13, color: C.muted), overflow: TextOverflow.ellipsis),
                 ),
-                Text(inr(trip.freight), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(inr(trip.isPart ? trip.biltyFreight : trip.freight),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
               ],
             ),
             if (showBalances && (trip.partyBalance != 0 || trip.ownerBalance != 0)) ...[

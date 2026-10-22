@@ -34,13 +34,20 @@ jobs:
           # App name, internet / location permissions, call + WhatsApp intents
           python3 tool/patch_android.py android/app/src/main/AndroidManifest.xml
 
-      - run: flutter pub get
+      - name: Get packages
+        run: |
+          flutter pub get > pub.txt 2>&1 || { tail -30 pub.txt | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
 
       - name: Analyze (errors only)
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.txt 2>&1 || {
+            grep -E "error •" analyze.txt | head -60 | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
+          grep -cE "warning •" analyze.txt || true
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release > build.txt 2>&1 || {
+            grep -E "Error|error:|FAILURE|What went wrong" -A3 build.txt | head -60 | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
 
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-release.apk TransWell-v${{ github.run_number }}.apk
@@ -54,8 +61,8 @@ jobs:
       - name: Publish APK as a GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.${{ github.run_number }}
-          name: TransWell v0.2.${{ github.run_number }}
+          tag_name: v0.3.${{ github.run_number }}
+          name: TransWell v0.3.${{ github.run_number }}
           body: |
             Phone pe niche wali **TransWell-v${{ github.run_number }}.apk** file download karke install karo.
             (Pehli baar "Unknown apps install" ki permission maangega — allow kar do.)
