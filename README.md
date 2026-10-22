@@ -14,6 +14,6 @@ Data abhi sample hai aur phone pe hi rehta hai (app band karne pe reset). Asli S
 
 ## APK kaise milta hai
 
-`main` branch pe har push pe GitHub Actions APK banata hai: **Actions → Build APK → latest run → Artifacts → TransWell-apk**.
+`main` branch pe har push pe GitHub Actions APK banata hai aur **Releases** mein daal deta hai: https://github.com/spywellinfotech-sys/TransWell/releases/latest
 
 Android project (`android/`) build ke waqt `flutter create` se banta hai, isliye repo mein sirf `lib/` aur `pubspec.yaml` hain.
