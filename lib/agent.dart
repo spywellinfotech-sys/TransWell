@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'admin.dart';
 import 'bilty.dart';
+import 'connect.dart';
 import 'cities.dart';
 import 'data.dart';
 import 'register.dart';
@@ -352,6 +354,8 @@ class AgentHome extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          const ConnRequestsSection(),
+          const PromoStrip(audience: 'agent'),
           ValueListenableBuilder<bool>(
             valueListenable: hideChecklist,
             builder: (context, hidden, _) => hidden || s.trips.length + s.bilties.length >= 5
@@ -1560,6 +1564,8 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
             ),
           ]),
           const Text('Kisi naam pe tap karo toh badal / hata sakte ho', style: TextStyle(fontSize: 12, color: C.muted)),
+          const SizedBox(height: 8),
+          const ConnRequestsSection(),
           const SizedBox(height: 12),
           SegmentedButton<int>(
             showSelectedIcon: false,
@@ -1599,6 +1605,7 @@ class LoadBoardScreen extends StatefulWidget {
 class _LoadBoardScreenState extends State<LoadBoardScreen> {
   late int tab = widget.initialTab;
   String type = 'Sab type';
+  bool onlyVerified = false;
 
   @override
   void initState() {
@@ -1617,7 +1624,11 @@ class _LoadBoardScreenState extends State<LoadBoardScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppScope.of(context);
-    final posts = s.truckPosts.where((p) => type == 'Sab type' || p.type == type).toList();
+    final posts = s.truckPosts
+        .where((p) => type == 'Sab type' || p.type == type)
+        .where((p) => !onlyVerified || s.isVerified(p.postedBy))
+        .toList();
+    final loadsShown = s.loads.where((l) => !onlyVerified || s.isVerified(l.postedBy)).toList();
     final here = s.myLat == null ? 'Location band' : nearestCity(s.myLat!, s.myLng!);
     return Scaffold(
       appBar: AppBar(
@@ -1655,6 +1666,19 @@ class _LoadBoardScreenState extends State<LoadBoardScreen> {
               onSelectionChanged: (v) => setState(() => tab = v.first),
             ),
             const SizedBox(height: 6),
+            FilterChip(
+              avatar: const VerifiedTick(),
+              label: const Text('Sirf verified'),
+              selected: onlyVerified,
+              onSelected: (v) => setState(() => onlyVerified = v),
+            ),
+            const SizedBox(height: 6),
+            PromoStrip(audience: switch (s.role) {
+              Role.owner => 'owner',
+              Role.driver => 'driver',
+              Role.shipper => 'shipper',
+              _ => 'agent',
+            }),
             Text(
               s.myLat == null ? 'Location chalu karo toh paas wale upar dikhenge' : 'Paas wale upar dikh rahe hain',
               style: const TextStyle(fontSize: 12, color: C.muted),
@@ -1676,8 +1700,8 @@ class _LoadBoardScreenState extends State<LoadBoardScreen> {
               if (posts.isEmpty) const EmptyNote('Abhi koi khaali gaadi post nahi hui'),
               for (final p in posts) TruckPostCard(post: p),
             ] else ...[
-              if (s.loads.isEmpty) const EmptyNote('Abhi koi load post nahi hua'),
-              for (final l in s.loads) LoadCard(load: l),
+              if (loadsShown.isEmpty) const EmptyNote('Abhi koi load post nahi hua'),
+              for (final l in loadsShown) LoadCard(load: l),
             ],
           ],
         ),
@@ -1703,8 +1727,10 @@ class TruckPostCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
+              if (p.isFeatured) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.star, color: C.amber, size: 18)),
               Expanded(child: Text(p.truckNo, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
               Text(ago(p.createdAt), style: const TextStyle(fontSize: 12, color: C.muted)),
+              if (s.isAdmin) _AdminPostMenu(truck: p),
             ]),
             const SizedBox(height: 4),
             Text(
@@ -1730,7 +1756,12 @@ class TruckPostCard extends StatelessWidget {
             ],
             const Divider(height: 18, color: C.line),
             Row(children: [
-              Expanded(child: Text(p.posterName, style: const TextStyle(fontSize: 13, color: C.muted))),
+              Expanded(
+                child: Row(children: [
+                  Flexible(child: Text(p.posterName, style: const TextStyle(fontSize: 13, color: C.muted))),
+                  if (s.isVerified(p.postedBy)) const Padding(padding: EdgeInsets.only(left: 4), child: VerifiedTick(size: 15)),
+                ]),
+              ),
               if (mine)
                 TextButton(
                     onPressed: () => s.closeTruckPost(p).catchError((Object e) => toast(context, friendlyError(e))),
@@ -1771,6 +1802,7 @@ class LoadCard extends StatelessWidget {
               Expanded(
                   child: Text('${l.from} → ${l.to}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
               if (l.isPart) const Padding(padding: EdgeInsets.only(right: 6), child: Pill('Part', fg: C.amberInk, bg: C.amberSoft)),
+              if (l.isFeatured) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.star, color: C.amber, size: 18)),
               Text(ago(l.createdAt), style: const TextStyle(fontSize: 12, color: C.muted)),
             ]),
             const SizedBox(height: 4),
@@ -1780,7 +1812,13 @@ class LoadCard extends StatelessWidget {
             if (l.rate != null) Text('Rate ${inr(l.rate!)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             const Divider(height: 18, color: C.line),
             Row(children: [
-              Expanded(child: Text(l.posterName, style: const TextStyle(fontSize: 13, color: C.muted))),
+              Expanded(
+                child: Row(children: [
+                  Flexible(child: Text(l.posterName, style: const TextStyle(fontSize: 13, color: C.muted))),
+                  if (s.isVerified(l.postedBy)) const Padding(padding: EdgeInsets.only(left: 4), child: VerifiedTick(size: 15)),
+                ]),
+              ),
+              if (s.isAdmin) _AdminPostMenu(load: l),
               if (mine)
                 TextButton(
                     onPressed: () => s.closeLoad(l).catchError((Object e) => toast(context, friendlyError(e))),
@@ -2097,6 +2135,43 @@ class TrackingScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Super admin only: feature (pin) or take down a load board post.
+class _AdminPostMenu extends StatelessWidget {
+  final LoadPost? load;
+  final TruckPost? truck;
+  const _AdminPostMenu({this.load, this.truck});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = AppScope.of(context);
+    final featured = load?.isFeatured ?? truck?.isFeatured ?? false;
+    return PopupMenuButton<int>(
+      tooltip: 'Admin',
+      icon: const Icon(Icons.more_vert, size: 20, color: C.muted),
+      onSelected: (v) async {
+        try {
+          if (v == 0) await r.setFeatured(load: load, truck: truck, days: 0);
+          if (v == 1 || v == 7 || v == 30) await r.setFeatured(load: load, truck: truck, days: v);
+          if (v == 9) {
+            final ok = await confirm(context, 'Post hatani hai?', 'Load board se sabke liye hat jaayegi.');
+            if (ok) await r.adminRemovePost(load: load, truck: truck);
+          }
+        } catch (e) {
+          if (context.mounted) toast(context, friendlyError(e));
+        }
+      },
+      itemBuilder: (_) => [
+        if (featured) const PopupMenuItem(value: 0, child: Text('⭐ Feature hatao')),
+        const PopupMenuItem(value: 1, child: Text('⭐ Feature — 1 din')),
+        const PopupMenuItem(value: 7, child: Text('⭐ Feature — 7 din')),
+        const PopupMenuItem(value: 30, child: Text('⭐ Feature — 30 din')),
+        const PopupMenuItem(value: 9, child: Text('Post hatao (admin)')),
+      ],
     );
   }
 }

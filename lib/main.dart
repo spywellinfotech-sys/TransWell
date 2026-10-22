@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'admin.dart';
 import 'agent.dart';
+import 'connect.dart';
 import 'config.dart';
 import 'data.dart';
 import 'others.dart';
@@ -186,6 +188,7 @@ class _StartGateState extends State<StartGate> {
 
 Widget homeFor(Repo r) {
   final p = r.profile;
+  if (p != null && p.phone.isEmpty) return PhoneScreen(next: () => homeFor(r));
   if (p == null || p.role == null) return const RoleScreen();
   switch (p.role!) {
     case Role.agent:
@@ -215,6 +218,18 @@ class AccountMenu extends StatelessWidget {
       tooltip: 'Account',
       icon: const Icon(Icons.account_circle_outlined),
       onSelected: (v) async {
+        if (v == 3) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const VerifyScreen()));
+          return;
+        }
+        if (v == 4) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTransportersScreen()));
+          return;
+        }
+        if (v == 5) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminPanel()));
+          return;
+        }
         if (v == 1) {
           Navigator.of(context)
               .pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const RoleScreen()), (_) => false);
@@ -229,8 +244,21 @@ class AccountMenu extends StatelessWidget {
       itemBuilder: (_) => [
         PopupMenuItem<int>(
           enabled: false,
-          child: Text('${r.myName} · ${r.profile?.phone ?? ''}', style: const TextStyle(color: C.muted)),
+          child: Row(children: [
+            Flexible(child: Text('${r.myName} · ${r.profile?.phone ?? ''}', style: const TextStyle(color: C.muted))),
+            if (r.profile?.verified ?? false) const Padding(padding: EdgeInsets.only(left: 4), child: VerifiedTick()),
+          ]),
         ),
+        if (r.isAdmin)
+          const PopupMenuItem<int>(
+              value: 5,
+              child: Row(children: [
+                Icon(Icons.admin_panel_settings_outlined, size: 20),
+                SizedBox(width: 8),
+                Text('Super admin (Promote)'),
+              ])),
+        const PopupMenuItem<int>(value: 3, child: Text('Verified badge')),
+        if (r.role != null && r.role != Role.agent) const PopupMenuItem<int>(value: 4, child: Text('Mere transporter')),
         const PopupMenuItem<int>(value: 1, child: Text('Role badlo')),
         const PopupMenuItem<int>(value: 2, child: Text('Logout')),
       ],
@@ -252,12 +280,43 @@ class _LoginScreenState extends State<LoginScreen> {
   final phone = TextEditingController();
   final pin = TextEditingController();
   bool busy = false;
+  StreamSubscription<AuthState>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Google login comes back through a deep link; continue when the session lands.
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+      if (data.event == AuthChangeEvent.signedIn && mounted && !busy) {
+        setState(() => busy = true);
+        final r = AppScope.read(context);
+        try {
+          await r.loadProfile();
+          if (mounted) goHome(context);
+        } catch (e) {
+          if (mounted) {
+            toast(context, friendlyError(e));
+            setState(() => busy = false);
+          }
+        }
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     phone.dispose();
     pin.dispose();
     super.dispose();
+  }
+
+  Future<void> _google() async {
+    try {
+      await AppScope.read(context).signInWithGoogle();
+    } catch (e) {
+      if (mounted) toast(context, 'Google login nahi hua: ${friendlyError(e)}');
+    }
   }
 
   Future<void> _login() async {
@@ -345,6 +404,24 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: busy
                           ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
                           : const Text('Aage badho', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(height: 10),
+                    const Row(children: [
+                      Expanded(child: Divider(color: C.line)),
+                      Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('ya', style: TextStyle(color: C.muted))),
+                      Expanded(child: Divider(color: C.line)),
+                    ]),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(48, 52),
+                        foregroundColor: C.ink,
+                        side: const BorderSide(color: C.field),
+                      ),
+                      onPressed: busy ? null : _google,
+                      icon: const Text('G',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF4285F4))),
+                      label: const Text('Google se login', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                     ),
                   ],
                 ),

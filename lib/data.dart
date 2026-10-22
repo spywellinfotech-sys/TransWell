@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 import 'cities.dart';
 import 'config.dart';
@@ -100,9 +101,168 @@ class Profile {
   final String name;
   final Role? role;
   final String? officeId;
-  Profile(this.id, this.phone, this.name, this.role, this.officeId);
+  final String email;
+  final bool isAdmin;
+  final bool verified;
+  Profile(this.id, this.phone, this.name, this.role, this.officeId,
+      {this.email = '', this.isAdmin = false, this.verified = false});
   factory Profile.fromJson(Map<String, dynamic> j) => Profile(
-      _s(j['id']), _s(j['phone']), _s(j['name']), roleFromDb(j['role'] as String?), j['office_id'] as String?);
+      _s(j['id']), _s(j['phone']), _s(j['name']), roleFromDb(j['role'] as String?), j['office_id'] as String?,
+      email: _s(j['email']), isAdmin: j['is_admin'] == true, verified: j['verified'] == true);
+}
+
+class Promotion {
+  final String id;
+  final String title;
+  final String subtitle;
+  final String body;
+  final String? imagePath;
+  final String phone;
+  final String whatsapp;
+  final String link;
+  final String audience;
+  final String city;
+  final DateTime startsOn;
+  final DateTime? endsOn;
+  final bool active;
+  final int sortOrder;
+  final int views;
+  final int taps;
+  Promotion.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        title = _s(j['title']),
+        subtitle = _s(j['subtitle']),
+        body = _s(j['body']),
+        imagePath = j['image_path'] as String?,
+        phone = _s(j['phone']),
+        whatsapp = _s(j['whatsapp']),
+        link = _s(j['link']),
+        audience = j['audience'] == null ? 'all' : _s(j['audience']),
+        city = _s(j['city']),
+        startsOn = _date(j['starts_on']),
+        endsOn = _ndate(j['ends_on']),
+        active = j['active'] == true,
+        sortOrder = _i(j['sort_order']),
+        views = _i(j['views']),
+        taps = _i(j['taps']);
+
+  bool get isLive {
+    final today = DateTime.now();
+    final d = DateTime(today.year, today.month, today.day);
+    return active && !startsOn.isAfter(d) && (endsOn == null || !endsOn!.isBefore(d));
+  }
+}
+
+class VerificationRequest {
+  final String id;
+  final String userId;
+  final String kind;
+  final String businessName;
+  final String personName;
+  final String city;
+  final String gst;
+  final String pan;
+  final String vehicles;
+  final List<String> docs;
+  final String status;
+  final String note;
+  final DateTime createdAt;
+  VerificationRequest.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        userId = _s(j['user_id']),
+        kind = _s(j['kind']),
+        businessName = _s(j['business_name']),
+        personName = _s(j['person_name']),
+        city = _s(j['city']),
+        gst = _s(j['gst_no']),
+        pan = _s(j['pan_no']),
+        vehicles = _s(j['vehicle_numbers']),
+        docs = ((j['doc_paths'] as List?) ?? const []).map((e) => e.toString()).toList(),
+        status = _s(j['status']),
+        note = _s(j['admin_note']),
+        createdAt = _date(j['created_at']);
+}
+
+class OfficeHit {
+  final String id;
+  final String name;
+  final String city;
+  final String phone;
+  final String kind;
+  final bool verified;
+  OfficeHit.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        name = _s(j['name']),
+        city = _s(j['city']),
+        phone = _s(j['phone']),
+        kind = _s(j['kind']),
+        verified = j['verified'] == true;
+}
+
+class MyConnection {
+  final String id;
+  final String officeId;
+  final String officeName;
+  final String officeCity;
+  final String officePhone;
+  final String officeKind;
+  final bool verified;
+  final String asRole;
+  final String status;
+  final String truckNumber;
+  MyConnection.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        officeId = _s(j['office_id']),
+        officeName = _s(j['office_name']),
+        officeCity = _s(j['office_city']),
+        officePhone = _s(j['office_phone']),
+        officeKind = _s(j['office_kind']),
+        verified = j['verified'] == true,
+        asRole = _s(j['as_role']),
+        status = _s(j['status']),
+        truckNumber = _s(j['truck_number']);
+}
+
+class ConnRequest {
+  final String id;
+  final String asRole;
+  final String name;
+  final String phone;
+  final String city;
+  final String truckNumber;
+  final String truckType;
+  final double? capacity;
+  final String message;
+  final DateTime createdAt;
+  ConnRequest.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        asRole = _s(j['as_role']),
+        name = _s(j['name']),
+        phone = _s(j['phone']),
+        city = _s(j['city']),
+        truckNumber = _s(j['truck_number']),
+        truckType = _s(j['truck_type']),
+        capacity = _d(j['capacity_ton']),
+        message = _s(j['message']),
+        createdAt = _date(j['created_at']);
+
+  String get roleLabel => switch (asRole) { 'owner' => 'Gaadi malik', 'driver' => 'Driver', _ => 'Shipper / party' };
+}
+
+class AdminUser {
+  final Map<String, dynamic> j;
+  AdminUser(this.j);
+  String get id => _s(j['id']);
+  String get phone => _s(j['phone']);
+  String get email => _s(j['email']);
+  String get name => _s(j['name']);
+  String get role => _s(j['role']);
+  String get office => _s(j['office_name']);
+  String get officeKind => _s(j['office_kind']);
+  bool get verified => j['verified'] == true;
+  bool get isAdmin => j['is_admin'] == true;
+  int get trips => _i(j['trips']);
+  DateTime get createdAt => _date(j['created_at']);
 }
 
 class Office {
@@ -488,6 +648,8 @@ class LoadPost {
   final String date;
   final int? rate;
   final bool isPart;
+  final DateTime? featuredUntil;
+  bool get isFeatured => featuredUntil != null && featuredUntil!.isAfter(DateTime.now());
   final double? lat;
   final double? lng;
   final DateTime createdAt;
@@ -504,6 +666,7 @@ class LoadPost {
         date = _s(j['loading_date']),
         rate = _ni(j['rate']),
         isPart = j['load_type'] == 'part',
+        featuredUntil = _ndate(j['featured_until']),
         lat = _d(j['lat']),
         lng = _d(j['lng']),
         createdAt = _date(j['created_at']);
@@ -522,6 +685,8 @@ class TruckPost {
   final double? lng;
   final List<String> wantTo;
   final double? spaceTon;
+  final DateTime? featuredUntil;
+  bool get isFeatured => featuredUntil != null && featuredUntil!.isAfter(DateTime.now());
   final DateTime createdAt;
   TruckPost.fromJson(Map<String, dynamic> j)
       : id = _s(j['id']),
@@ -536,6 +701,7 @@ class TruckPost {
         lng = _d(j['lng']),
         wantTo = ((j['want_to'] as List?) ?? const []).map((e) => e.toString()).toList(),
         spaceTon = _d(j['space_ton']),
+        featuredUntil = _ndate(j['featured_until']),
         createdAt = _date(j['created_at']);
 }
 
@@ -1440,12 +1606,241 @@ class Repo extends ChangeNotifier {
     ]);
     loads = (r[0] as List).map((e) => LoadPost.fromJson(e)).toList();
     truckPosts = (r[1] as List).map((e) => TruckPost.fromJson(e)).toList();
-    if (myLat != null) {
-      double dist(double? la, double? ln) => (la == null || ln == null) ? 99999 : kmBetween(myLat!, myLng!, la, ln);
-      loads.sort((a, b) => dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng)));
-      truckPosts.sort((a, b) => dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng)));
+    double dist(double? la, double? ln) =>
+        (myLat == null || la == null || ln == null) ? 99999 : kmBetween(myLat!, myLng!, la, ln);
+    loads.sort((a, b) {
+      if (a.isFeatured != b.isFeatured) return a.isFeatured ? -1 : 1;
+      return dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng));
+    });
+    truckPosts.sort((a, b) {
+      if (a.isFeatured != b.isFeatured) return a.isFeatured ? -1 : 1;
+      return dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng));
+    });
+    final posters = {...loads.map((l) => l.postedBy), ...truckPosts.map((p) => p.postedBy)}.toList();
+    if (posters.isNotEmpty) {
+      try {
+        final v = await db.rpc('verified_ids', params: {'p_ids': posters});
+        verifiedIds = (v as List).map((e) => e.toString()).toSet();
+      } catch (_) {}
     }
     notifyListeners();
+  }
+
+  Set<String> verifiedIds = {};
+  bool isVerified(String userId) => verifiedIds.contains(userId);
+
+  // ----- Google login + phone -----
+  static const googleRedirect = 'com.spywell.transwell://login-callback';
+
+  Future<void> signInWithGoogle() async {
+    await db.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: googleRedirect,
+      authScreenLaunchMode: LaunchMode.externalApplication,
+    );
+  }
+
+  Future<void> setMyPhone(String phone) async {
+    await db.rpc('set_my_phone', params: {'p_phone': phone});
+    await loadProfile();
+  }
+
+  // ----- verification (KYC) -----
+  List<VerificationRequest> myRequests = [];
+
+  Future<void> refreshMyRequests() async {
+    final uid = db.auth.currentUser?.id;
+    if (uid == null) return;
+    final rows = await db.from('verification_requests').select().eq('user_id', uid).order('created_at', ascending: false);
+    myRequests = (rows as List).map((e) => VerificationRequest.fromJson(e)).toList();
+    notifyListeners();
+  }
+
+  Future<void> submitVerification({
+    required String kind,
+    required String businessName,
+    required String personName,
+    required String city,
+    required String gst,
+    required String pan,
+    required String vehicles,
+    required List<Uint8List> docs,
+  }) async {
+    final uid = db.auth.currentUser!.id;
+    final paths = <String>[];
+    for (var i = 0; i < docs.length; i++) {
+      final path = '$uid/${DateTime.now().millisecondsSinceEpoch}-$i.jpg';
+      await db.storage.from('kyc').uploadBinary(path, docs[i],
+          fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false));
+      paths.add(path);
+    }
+    await db.from('verification_requests').insert({
+      'user_id': uid,
+      'kind': kind,
+      'business_name': businessName,
+      'person_name': personName,
+      'city': city,
+      'gst_no': gst,
+      'pan_no': pan,
+      'vehicle_numbers': vehicles,
+      'doc_paths': paths,
+    });
+    await refreshMyRequests();
+  }
+
+  Future<String> kycUrl(String path) => db.storage.from('kyc').createSignedUrl(path, 600);
+
+  // ----- super admin -----
+  bool get isAdmin => profile?.isAdmin ?? false;
+  List<VerificationRequest> adminRequests = [];
+  List<AdminUser> adminUsers = [];
+  Map<String, int> adminStats = {};
+
+  Future<void> refreshAdmin({String query = ''}) async {
+    final r = await Future.wait<dynamic>([
+      db.from('verification_requests').select().order('created_at', ascending: false).limit(200),
+      db.rpc('admin_users', params: {'p_query': query}),
+      db.rpc('admin_stats'),
+    ]);
+    adminRequests = (r[0] as List).map((e) => VerificationRequest.fromJson(e)).toList();
+    adminUsers = (r[1] as List).map((e) => AdminUser(e as Map<String, dynamic>)).toList();
+    final st = r[2] as List;
+    adminStats = st.isEmpty ? {} : (st.first as Map<String, dynamic>).map((k, v) => MapEntry(k, _i(v)));
+    notifyListeners();
+  }
+
+  Future<void> adminReview(String requestId, bool approve, String note) async {
+    await db.rpc('admin_review', params: {'p_request': requestId, 'p_approve': approve, 'p_note': note});
+    await refreshAdmin();
+  }
+
+  Future<void> adminSetFlags(String userId, {required bool verified, required bool admin}) async {
+    await db.rpc('admin_set_flags', params: {'p_user': userId, 'p_verified': verified, 'p_admin': admin});
+    await refreshAdmin();
+  }
+
+  Future<void> setFeatured({LoadPost? load, TruckPost? truck, required int days}) async {
+    final until = days <= 0 ? null : DateTime.now().add(Duration(days: days)).toUtc().toIso8601String();
+    if (load != null) await db.from('loads').update({'featured_until': until}).eq('id', load.id);
+    if (truck != null) await db.from('truck_posts').update({'featured_until': until}).eq('id', truck.id);
+    await refreshBoard();
+  }
+
+  Future<void> adminRemovePost({LoadPost? load, TruckPost? truck}) async {
+    if (load != null) await db.from('loads').update({'status': 'cancelled'}).eq('id', load.id);
+    if (truck != null) await db.from('truck_posts').update({'status': 'expired'}).eq('id', truck.id);
+    await refreshBoard();
+  }
+
+  // ----- connections (owner / driver / shipper add their transporter) -----
+  List<MyConnection> myConnections = [];
+  List<ConnRequest> connRequests = [];
+
+  Future<List<OfficeHit>> searchOffices(String q) async {
+    final rows = await db.rpc('search_offices', params: {'p_query': q});
+    return (rows as List).map((e) => OfficeHit.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> refreshMyConnections() async {
+    final rows = await db.rpc('my_connections');
+    myConnections = (rows as List).map((e) => MyConnection.fromJson(e as Map<String, dynamic>)).toList();
+    notifyListeners();
+  }
+
+  Future<void> sendConnection({
+    required String officeId,
+    required String asRole,
+    required String name,
+    String city = '',
+    String truckNumber = '',
+    String truckType = '',
+    double? capacity,
+    String message = '',
+  }) async {
+    await db.from('connections').insert({
+      'user_id': db.auth.currentUser!.id,
+      'office_id': officeId,
+      'as_role': asRole,
+      'name': name,
+      'phone': profile?.phone,
+      'city': city,
+      'truck_number': truckNumber.toUpperCase(),
+      'truck_type': truckType,
+      'capacity_ton': capacity,
+      'message': message,
+    });
+    await refreshMyConnections();
+  }
+
+  Future<void> cancelConnection(String id) async {
+    await db.from('connections').delete().eq('id', id);
+    await refreshMyConnections();
+  }
+
+  Future<void> refreshConnRequests() async {
+    if (profile?.officeId == null) return;
+    final rows = await db
+        .from('connections')
+        .select()
+        .eq('office_id', profile!.officeId!)
+        .eq('status', 'pending')
+        .order('created_at', ascending: false);
+    connRequests = (rows as List).map((e) => ConnRequest.fromJson(e)).toList();
+    notifyListeners();
+  }
+
+  Future<void> decideConnection(String id, bool accept) async {
+    await db.rpc('decide_connection', params: {'p_id': id, 'p_accept': accept});
+    await refreshConnRequests();
+    await refreshOffice();
+  }
+
+  // ----- promotions -----
+  List<Promotion> promotions = [];
+
+  Future<void> refreshPromotions() async {
+    try {
+      final rows = await db.from('promotions').select().order('sort_order').order('created_at', ascending: false);
+      promotions = (rows as List).map((e) => Promotion.fromJson(e)).toList();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Live promotions for the current user's role (admin sees the live ones too).
+  List<Promotion> promotionsFor(String audience) {
+    final city = (office?.city ?? '').toLowerCase();
+    return promotions
+        .where((p) => p.isLive)
+        .where((p) => p.audience == 'all' || p.audience == audience)
+        .where((p) => p.city.isEmpty || city.isEmpty || p.city.toLowerCase() == city)
+        .toList();
+  }
+
+  String promoImageUrl(String path) => db.storage.from('promo').getPublicUrl(path);
+
+  Future<void> savePromotion(Map<String, dynamic> data, {String? id, Uint8List? image}) async {
+    if (image != null) {
+      final path = 'p-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await db.storage.from('promo').uploadBinary(path, image,
+          fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false));
+      data['image_path'] = path;
+    }
+    if (id == null) {
+      data['created_by'] = db.auth.currentUser!.id;
+      await db.from('promotions').insert(data);
+    } else {
+      await db.from('promotions').update(data).eq('id', id);
+    }
+    await refreshPromotions();
+  }
+
+  Future<void> deletePromotion(String id) async {
+    await db.from('promotions').delete().eq('id', id);
+    await refreshPromotions();
+  }
+
+  void promotionHit(Promotion p, {required bool tap}) {
+    db.rpc('promotion_hit', params: {'p_id': p.id, 'p_tap': tap}).catchError((_) {});
   }
 
   int? kmFromMe(double? lat, double? lng) {

@@ -32,6 +32,17 @@ if 'android:scheme="tel"' not in xml:
         xml = xml.replace("</manifest>", queries + "</manifest>", 1)
 
 xml = re.sub(r'android:label="[^"]*"', 'android:label="TransWell"', xml, count=1)
+
+# Google login returns to the app through this deep link.
+deep = """            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.spywell.transwell" android:host="login-callback" />
+            </intent-filter>
+"""
+if "login-callback" not in xml:
+    xml = xml.replace("</activity>", deep + "        </activity>", 1)
 open(path, "w", encoding="utf-8").write(xml)
 print("patched", path)
 
@@ -47,3 +58,49 @@ for folder in ("drawable", "drawable-v21"):
             '    <item><color android:color="#0B2A6B"/></item>\n'
             '</layer-list>\n')
         print("launch background", f)
+
+
+# Release signing with a fixed key (keystore + passwords come from CI secrets).
+for name in ("build.gradle.kts", "build.gradle"):
+    g = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(path))), name)
+    if not os.path.exists(g):
+        continue
+    src = open(g, encoding="utf-8").read()
+    if "upload-keystore.jks" in src:
+        break
+    if name.endswith(".kts"):
+        block = """    signingConfigs {
+        create("release") {
+            val ks = file("upload-keystore.jks")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {"""
+        src = src.replace("    buildTypes {", block, 1)
+        src = src.replace('signingConfig = signingConfigs.getByName("debug")',
+                          'signingConfig = if (file("upload-keystore.jks").exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")', 1)
+    else:
+        block = """    signingConfigs {
+        release {
+            if (file("upload-keystore.jks").exists()) {
+                storeFile file("upload-keystore.jks")
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {"""
+        src = src.replace("    buildTypes {", block, 1)
+        src = src.replace("signingConfig = signingConfigs.debug",
+                          'signingConfig = file("upload-keystore.jks").exists() ? signingConfigs.release : signingConfigs.debug', 1)
+    open(g, "w", encoding="utf-8").write(src)
+    print("signing config", g)
+    break

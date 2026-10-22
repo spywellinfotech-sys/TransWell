@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'admin.dart';
 import 'agent.dart';
+import 'connect.dart';
 import 'cities.dart';
 import 'data.dart';
 import 'main.dart' show AccountMenu;
@@ -156,6 +158,7 @@ class _OwnerHomeState extends State<OwnerHome> {
             children: [
               _Header('Namaste, ${s.myName} ji', 'Meri gaadiyan'),
               const SizedBox(height: 12),
+              const _TopExtras(audience: 'owner'),
               if (mine.isEmpty) const _NotLinkedNote('truck owner'),
               if (byOffice.isNotEmpty)
                 Panel(
@@ -536,6 +539,7 @@ class _DriverHomeState extends State<DriverHome> with WidgetsBindingObserver {
             children: [
               _Header('राम राम, ${s.myName} जी', 'आज का ट्रिप'),
               const SizedBox(height: 12),
+              const _TopExtras(audience: 'driver'),
               if (trip == null)
                 Panel(
                   padding: const EdgeInsets.all(20),
@@ -723,6 +727,7 @@ class _ShipperHomeState extends State<ShipperHome> {
             children: [
               _Header(s.myName, 'Mera maal kahan hai'),
               const SizedBox(height: 12),
+              const _TopExtras(audience: 'shipper'),
               if (mine.isEmpty && parcels.isEmpty) const _NotLinkedNote('party ya lene wale'),
               if (parcels.isNotEmpty) ...[
                 const SectionTitle('Mere parcel / bilty'),
@@ -943,6 +948,45 @@ class _ParcelCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Promotions + quick link to "Mere transporter" on owner / driver / shipper homes.
+class _TopExtras extends StatelessWidget {
+  final String audience;
+  const _TopExtras({required this.audience});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = AppScope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PromoStrip(audience: audience),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Panel(
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTransportersScreen())),
+            child: Row(children: [
+              const Icon(Icons.storefront_outlined, color: C.brand),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(audience == 'driver' ? 'मेरे ट्रांसपोर्टर · जोड़ो' : 'Mere transporter · naya jodo',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              if (!(r.profile?.verified ?? false))
+                TextButton(
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VerifyScreen())),
+                  child: const Text('Verified bano'),
+                )
+              else
+                const VerifiedTick(),
+            ]),
+          ),
+        ),
+      ],
     );
   }
 }
