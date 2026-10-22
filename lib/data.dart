@@ -786,7 +786,7 @@ class Repo extends ChangeNotifier {
   int partyBalance(String id) =>
       (party(id)?.opening ?? 0) +
       trips.where((t) => t.partyId == id).fold(0, (s, t) => s + t.partyBalance) +
-      bilties.where((c) => c.partyId == id && !c.isToPay).fold(0, (s, c) => s + c.balance);
+      bilties.where((c) => c.partyId == id && !c.isToPay).fold<int>(0, (s, c) => s + c.balance);
 
   /// Bilties still in the godown (booked, no truck yet).
   List<Consignment> get godown => bilties.where((c) => c.tripId == null && c.status == 'booked').toList();
