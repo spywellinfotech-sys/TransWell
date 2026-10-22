@@ -2,7 +2,16 @@
 
 Transport commission agents ke liye Android app (Flutter): trips, party / truck owner ka hisaab, bilty, directory, load board, live tracking — aur truck owner, driver, shipper ke liye alag screens.
 
-## Abhi kya hai (v0.2)
+## v0.3 — register se app pe aana aasaan
+
+- **Register entry:** ek line mein trip (party / gaadi naye hon toh apne aap bante hain), purani tarikh, "Save + agli entry"
+- **Purana baaki:** parties aur gaadi malikon ka opening balance ek screen pe
+- **Register view + PDF:** mahine ka gaadi register aur bilty register
+- **Excel / CSV import**, phone contacts se naam-number, WhatsApp pe app invite
+- **Goods transport + part load:** bilty booking, godown, part-load gaadi (jagah khaali), loading challan PDF, to-pay vasooli
+- **Parcel service:** nag / kg / keemat, lene wala apne number se track kare, delivery + POD
+
+## v0.2
 
 - **Login:** mobile number + 6 ank ka PIN (pehli baar jo PIN rakho wahi aage). SMS OTP tab judega jab SMS provider (MSG91 / Twilio) ki key milegi.
 - **Backend:** Supabase project `TransWell` (Mumbai). Har table pe row-level security: agent ko sirf apne office ka data; truck owner, driver aur shipper apne **mobile number** se apne trips dekhte hain (agent ne directory mein jo number daala).
