@@ -1,8 +1,11 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
+import 'cities.dart';
 import 'data.dart';
+import 'services.dart';
 
 class C {
   static const ink = Color(0xFF161B26);
@@ -258,19 +261,40 @@ class CallButton extends StatelessWidget {
     return IconButton.filledTonal(
       tooltip: '$name ko call karo',
       style: IconButton.styleFrom(backgroundColor: C.recvSoft, foregroundColor: C.recv),
-      onPressed: () => soon(context, 'Call: $name · $phone'),
+      onPressed: () => callPhone(context, phone),
       icon: const Icon(Icons.call_outlined),
     );
   }
 }
 
-void soon(BuildContext context, String msg) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
+void soon(BuildContext context, String msg) => toast(context, msg);
+
+
+class EmptyNote extends StatelessWidget {
+  final String text;
+  final String? action;
+  final VoidCallback? onAction;
+  const EmptyNote(this.text, {super.key, this.action, this.onAction});
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(text, style: const TextStyle(color: C.muted, height: 1.4)),
+          if (action != null) ...[
+            const SizedBox(height: 10),
+            OutlinedButton(onPressed: onAction, child: Text(action!)),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
-/// Trip tile used in lists.
+/// Trip tile used in agent lists.
 class TripTile extends StatelessWidget {
   final Trip trip;
   final VoidCallback onTap;
@@ -290,8 +314,7 @@ class TripTile extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('LR ${trip.lr} · ${dm(trip.date)}',
-                      style: const TextStyle(fontSize: 12, color: C.muted)),
+                  child: Text('LR ${trip.lr} · ${dm(trip.date)}', style: const TextStyle(fontSize: 12, color: C.muted)),
                 ),
                 StatusChip(trip.status),
               ],
@@ -302,12 +325,10 @@ class TripTile extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('${s.party(trip.partyId).name} · ${trip.truckNo}',
-                      style: const TextStyle(fontSize: 13, color: C.muted),
-                      overflow: TextOverflow.ellipsis),
+                  child: Text('${s.partyName(trip.partyId)} · ${s.truckNo(trip.truckId)}',
+                      style: const TextStyle(fontSize: 13, color: C.muted), overflow: TextOverflow.ellipsis),
                 ),
-                Text(inr(trip.freight),
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                Text(inr(trip.freight), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
               ],
             ),
             if (showBalances && (trip.partyBalance != 0 || trip.ownerBalance != 0)) ...[
@@ -316,12 +337,10 @@ class TripTile extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text('Party: ${inr(trip.partyBalance)} baaki',
-                        style: const TextStyle(
-                            fontSize: 12, color: C.recv, fontWeight: FontWeight.w600)),
+                        style: const TextStyle(fontSize: 12, color: C.recv, fontWeight: FontWeight.w600)),
                   ),
                   Text('Owner: ${inr(trip.ownerBalance)} baaki',
-                      style: const TextStyle(
-                          fontSize: 12, color: C.pay, fontWeight: FontWeight.w600)),
+                      style: const TextStyle(fontSize: 12, color: C.pay, fontWeight: FontWeight.w600)),
                 ],
               ),
             ],
@@ -332,168 +351,81 @@ class TripTile extends StatelessWidget {
   }
 }
 
-/// Simple drawn route map: origin, destination, truck at [progress].
-class RouteMap extends StatelessWidget {
+/// Live map of a trip on OpenStreetMap: origin, destination and the truck's last point.
+class TripMap extends StatelessWidget {
   final String from;
   final String to;
-  final double progress;
-  final String near;
+  final double? lat;
+  final double? lng;
   final double height;
-  const RouteMap({
-    super.key,
-    required this.from,
-    required this.to,
-    required this.progress,
-    required this.near,
-    this.height = 360,
-  });
+  const TripMap({super.key, required this.from, required this.to, this.lat, this.lng, this.height = 360});
 
   @override
   Widget build(BuildContext context) {
+    final a = coordsOf(from);
+    final b = coordsOf(to);
+    final pts = <LatLng>[
+      if (a != null) LatLng(a.$1, a.$2),
+      if (b != null) LatLng(b.$1, b.$2),
+      if (lat != null && lng != null) LatLng(lat!, lng!),
+    ];
+    if (pts.isEmpty) {
+      return Container(
+        height: height,
+        color: const Color(0xFFE8EEE6),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(24),
+        child: const Text('Abhi location nahi aayi. Driver ke app se trip "Loaded" hote hi truck yahan dikhega.',
+            textAlign: TextAlign.center, style: TextStyle(color: C.subtle)),
+      );
+    }
+    final camera = pts.length == 1
+        ? MapOptions(initialCenter: pts.first, initialZoom: 11)
+        : MapOptions(
+            initialCameraFit: CameraFit.bounds(
+              bounds: LatLngBounds.fromPoints(pts),
+              padding: const EdgeInsets.all(48),
+            ),
+          );
+    Widget dot(Color fill, Color ring) => Container(
+          decoration: BoxDecoration(color: fill, shape: BoxShape.circle, border: Border.all(color: ring, width: 3)),
+        );
     return SizedBox(
       height: height,
-      width: double.infinity,
-      child: CustomPaint(painter: _RouteMapPainter(from, to, progress, near)),
+      child: FlutterMap(
+        options: camera,
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.spywell.transwell',
+          ),
+          if (a != null && b != null)
+            PolylineLayer(polylines: [
+              Polyline(points: [LatLng(a.$1, a.$2), LatLng(b.$1, b.$2)], color: C.brand, strokeWidth: 4),
+            ]),
+          MarkerLayer(markers: [
+            if (a != null) Marker(point: LatLng(a.$1, a.$2), width: 20, height: 20, child: dot(Colors.white, C.brand)),
+            if (b != null) Marker(point: LatLng(b.$1, b.$2), width: 22, height: 22, child: dot(C.recv, Colors.white)),
+            if (lat != null && lng != null)
+              Marker(
+                point: LatLng(lat!, lng!),
+                width: 40,
+                height: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                      color: C.amber, shape: BoxShape.circle, border: Border.all(color: C.ink, width: 2)),
+                  child: const Icon(Icons.local_shipping, size: 20, color: C.ink),
+                ),
+              ),
+          ]),
+          const RichAttributionWidget(attributions: [TextSourceAttribution('OpenStreetMap contributors')]),
+        ],
+      ),
     );
   }
 }
 
-class _RouteMapPainter extends CustomPainter {
-  final String from;
-  final String to;
-  final double progress;
-  final String near;
-  _RouteMapPainter(this.from, this.to, this.progress, this.near);
-
-  Offset _bez(Offset a, Offset c1, Offset c2, Offset b, double t) {
-    final mt = 1 - t;
-    return a * (mt * mt * mt) + c1 * (3 * mt * mt * t) + c2 * (3 * mt * t * t) + b * (t * t * t);
-  }
-
-  void _label(Canvas canvas, String text, Offset at, {bool bold = true, Color bg = Colors.transparent}) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-            color: C.ink, fontSize: 14, fontWeight: bold ? FontWeight.w700 : FontWeight.w600),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: 200);
-    if (bg != Colors.transparent) {
-      final r = RRect.fromRectAndRadius(
-          Rect.fromLTWH(at.dx - 10, at.dy - 6, tp.width + 20, tp.height + 12), const Radius.circular(14));
-      canvas.drawRRect(r, Paint()..color = bg);
-    }
-    tp.paint(canvas, at);
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFFE8EEE6));
-    final road = Paint()
-      ..color = const Color(0xFFD3DCCF)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 9;
-    canvas.drawPath(
-        Path()
-          ..moveTo(0, h * 0.28)
-          ..quadraticBezierTo(w * 0.3, h * 0.33, w * 0.5, h * 0.21)
-          ..quadraticBezierTo(w * 0.75, h * 0.1, w, h * 0.16),
-        road);
-    canvas.drawPath(
-        Path()
-          ..moveTo(w * 0.08, h)
-          ..quadraticBezierTo(w * 0.25, h * 0.75, w * 0.15, h * 0.55)
-          ..quadraticBezierTo(w * 0.05, h * 0.3, w * 0.3, 0),
-        road);
-    canvas.drawPath(
-        Path()
-          ..moveTo(w * 0.62, h)
-          ..quadraticBezierTo(w * 0.78, h * 0.7, w, h * 0.65),
-        road);
-
-    final a = Offset(w * 0.77, h * 0.1);
-    final b = Offset(w * 0.24, h * 0.88);
-    final c1 = Offset(w * 0.68, h * 0.4);
-    final c2 = Offset(w * 0.4, h * 0.6);
-    final p = progress.clamp(0.0, 1.0);
-
-    final done = Path()..moveTo(a.dx, a.dy);
-    const steps = 60;
-    for (var i = 1; i <= steps; i++) {
-      final t = i / steps;
-      if (t > p) break;
-      final pt = _bez(a, c1, c2, b, t);
-      done.lineTo(pt.dx, pt.dy);
-    }
-    canvas.drawPath(
-        done,
-        Paint()
-          ..color = C.brand
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth = 6);
-    // dashed remainder
-    final dash = Paint()
-      ..color = C.brand
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 5;
-    for (var i = 0; i < steps; i += 2) {
-      final t0 = i / steps, t1 = math.min(1.0, (i + 0.6) / steps);
-      if (t0 < p) continue;
-      canvas.drawLine(_bez(a, c1, c2, b, t0), _bez(a, c1, c2, b, t1), dash);
-    }
-
-    canvas.drawCircle(a, 9, Paint()..color = Colors.white);
-    canvas.drawCircle(
-        a,
-        9,
-        Paint()
-          ..color = C.brand
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3);
-    _label(canvas, from, Offset(a.dx + 16, a.dy - 9));
-    canvas.drawCircle(b, 10, Paint()..color = C.recv);
-    canvas.drawCircle(
-        b,
-        10,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3);
-    _label(canvas, to, Offset(b.dx + 18, b.dy - 9));
-
-    final truck = _bez(a, c1, c2, b, p);
-    canvas.drawCircle(truck, 26, Paint()..color = const Color(0x4DF2B53A));
-    canvas.drawCircle(truck, 16, Paint()..color = C.amber);
-    canvas.drawCircle(
-        truck,
-        16,
-        Paint()
-          ..color = C.ink
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2);
-    final icon = TextPainter(
-      text: TextSpan(
-        text: String.fromCharCode(Icons.local_shipping.codePoint),
-        style: TextStyle(fontSize: 18, fontFamily: Icons.local_shipping.fontFamily, color: C.ink),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    icon.paint(canvas, truck - Offset(icon.width / 2, icon.height / 2));
-    if (near.isNotEmpty && p > 0 && p < 1) {
-      _label(canvas, near, Offset(truck.dx + 32, truck.dy - 10), bold: false, bg: Colors.white);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RouteMapPainter old) =>
-      old.progress != progress || old.from != from || old.to != to || old.near != near;
-}
-
-/// Horizontal progress strip used on the shipper home.
+/// Horizontal progress strip (shipper home).
 class TripProgressBar extends StatelessWidget {
   final double progress;
   const TripProgressBar({super.key, required this.progress});
@@ -513,24 +445,20 @@ class TripProgressBar extends StatelessWidget {
               right: 10,
               top: 15,
               child: Container(
-                  height: 6,
-                  decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(3))),
+                  height: 6, decoration: BoxDecoration(color: C.line, borderRadius: BorderRadius.circular(3))),
             ),
             Positioned(
               left: 10,
               top: 15,
               width: x - 10,
               child: Container(
-                  height: 6,
-                  decoration: BoxDecoration(color: C.brand, borderRadius: BorderRadius.circular(3))),
+                  height: 6, decoration: BoxDecoration(color: C.brand, borderRadius: BorderRadius.circular(3))),
             ),
             Positioned(
                 left: 3,
                 top: 11,
                 child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: const BoxDecoration(color: C.brand, shape: BoxShape.circle))),
+                    width: 14, height: 14, decoration: const BoxDecoration(color: C.brand, shape: BoxShape.circle))),
             Positioned(
                 right: 3,
                 top: 11,
@@ -538,17 +466,15 @@ class TripProgressBar extends StatelessWidget {
                     width: 14,
                     height: 14,
                     decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: C.recv, width: 3)))),
+                        color: Colors.white, shape: BoxShape.circle, border: Border.all(color: C.recv, width: 3)))),
             Positioned(
               left: x - 14,
               top: 4,
               child: Container(
                 width: 28,
                 height: 28,
-                decoration: BoxDecoration(
-                    color: C.amber, shape: BoxShape.circle, border: Border.all(color: C.ink, width: 2)),
+                decoration:
+                    BoxDecoration(color: C.amber, shape: BoxShape.circle, border: Border.all(color: C.ink, width: 2)),
                 child: const Icon(Icons.local_shipping, size: 15, color: C.ink),
               ),
             ),
@@ -557,4 +483,80 @@ class TripProgressBar extends StatelessWidget {
       );
     });
   }
+}
+
+/// Simple labelled form field used in add-sheets.
+class Field extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final bool number;
+  final bool phone;
+  final String? hint;
+  const Field(this.controller, this.label, {super.key, this.number = false, this.phone = false, this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: phone ? TextInputType.phone : (number ? TextInputType.number : TextInputType.text),
+      textCapitalization: (number || phone) ? TextCapitalization.none : TextCapitalization.words,
+      decoration: InputDecoration(labelText: label, hintText: hint),
+    );
+  }
+}
+
+/// Shows a bottom sheet with a form and a save button that runs [onSave].
+Future<void> showFormSheet(
+  BuildContext context, {
+  required String title,
+  required List<Widget> Function(StateSetter setSt) fields,
+  required Future<String?> Function() onSave,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (ctx) {
+      var saving = false;
+      return StatefulBuilder(
+        builder: (ctx, setSt) => Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                for (final f in fields(setSt)) ...[f, const SizedBox(height: 10)],
+                const SizedBox(height: 6),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setSt(() => saving = true);
+                          try {
+                            final err = await onSave();
+                            if (err != null) {
+                              if (ctx.mounted) toast(ctx, err);
+                              setSt(() => saving = false);
+                              return;
+                            }
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          } catch (e) {
+                            if (ctx.mounted) toast(ctx, friendlyError(e));
+                            setSt(() => saving = false);
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+                      : const Text('Save'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

@@ -1,14 +1,22 @@
 name: transwell
 description: TransWell - transport commission agent app (trips, hisaab, bilty, load board, tracking).
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  supabase_flutter: ^2.8.0
+  url_launcher: ^6.3.0
+  geolocator: '>=13.0.0 <15.0.0'
+  image_picker: ^1.1.2
+  pdf: ^3.11.0
+  printing: ^5.13.0
+  flutter_map: '>=7.0.0 <9.0.0'
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_lints: ^4.0.0

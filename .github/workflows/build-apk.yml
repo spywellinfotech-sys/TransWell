@@ -31,8 +31,8 @@ jobs:
             flutter create --platforms=android --org com.spywell --project-name transwell .
             rm -rf test
           fi
-          # App name shown under the icon
-          sed -i 's/android:label="[^"]*"/android:label="TransWell"/' android/app/src/main/AndroidManifest.xml
+          # App name, internet / location permissions, call + WhatsApp intents
+          python3 tool/patch_android.py android/app/src/main/AndroidManifest.xml
 
       - run: flutter pub get
 
@@ -54,8 +54,8 @@ jobs:
       - name: Publish APK as a GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: TransWell v0.1.${{ github.run_number }}
+          tag_name: v0.2.${{ github.run_number }}
+          name: TransWell v0.2.${{ github.run_number }}
           body: |
             Phone pe niche wali **TransWell-v${{ github.run_number }}.apk** file download karke install karo.
             (Pehli baar "Unknown apps install" ki permission maangega — allow kar do.)

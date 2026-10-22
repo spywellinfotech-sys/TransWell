@@ -1,4 +1,32 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/widgets.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'cities.dart';
+import 'config.dart';
+
+// ---------------------------------------------------------------------------
+// Small parsing helpers
+// ---------------------------------------------------------------------------
+
+int _i(dynamic v) => v == null ? 0 : (v as num).toInt();
+int? _ni(dynamic v) => v == null ? null : (v as num).toInt();
+double? _d(dynamic v) => v == null ? null : (v as num).toDouble();
+String _s(dynamic v) => v == null ? '' : v.toString();
+DateTime _date(dynamic v) => v == null ? DateTime.now() : DateTime.parse(v.toString()).toLocal();
+DateTime? _ndate(dynamic v) => v == null ? null : DateTime.parse(v.toString()).toLocal();
+String _ymd(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+T? _first<T>(Iterable<T> it) => it.isEmpty ? null : it.first;
+
+String normPhone(String p) {
+  final digits = p.replaceAll(RegExp(r'\D'), '');
+  return digits.length > 10 ? digits.substring(digits.length - 10) : digits;
+}
 
 // ---------------------------------------------------------------------------
 // Models
@@ -7,59 +35,86 @@ import 'package:flutter/widgets.dart';
 enum TripStatus { booked, loaded, inTransit, delivered, pod, settled }
 
 extension TripStatusX on TripStatus {
-  String get label {
-    switch (this) {
-      case TripStatus.booked:
-        return 'Booked';
-      case TripStatus.loaded:
-        return 'Loaded';
-      case TripStatus.inTransit:
-        return 'In transit';
-      case TripStatus.delivered:
-        return 'POD baaki';
-      case TripStatus.pod:
-        return 'POD mila';
-      case TripStatus.settled:
-        return 'Settled';
-    }
-  }
+  String get db => switch (this) {
+        TripStatus.booked => 'booked',
+        TripStatus.loaded => 'loaded',
+        TripStatus.inTransit => 'in_transit',
+        TripStatus.delivered => 'delivered',
+        TripStatus.pod => 'pod',
+        TripStatus.settled => 'settled',
+      };
 
-  String get short {
-    switch (this) {
-      case TripStatus.booked:
-        return 'Booked';
-      case TripStatus.loaded:
-        return 'Loaded';
-      case TripStatus.inTransit:
-        return 'Transit';
-      case TripStatus.delivered:
-        return 'Delivered';
-      case TripStatus.pod:
-        return 'POD';
-      case TripStatus.settled:
-        return 'Settled';
-    }
-  }
+  static TripStatus fromDb(String s) => switch (s) {
+        'loaded' => TripStatus.loaded,
+        'in_transit' => TripStatus.inTransit,
+        'delivered' => TripStatus.delivered,
+        'pod' => TripStatus.pod,
+        'settled' => TripStatus.settled,
+        _ => TripStatus.booked,
+      };
 
-  /// Label for the button that moves a trip to this status.
-  String get action {
-    switch (this) {
-      case TripStatus.booked:
-        return 'Booked';
-      case TripStatus.loaded:
-        return 'Loaded mark karo';
-      case TripStatus.inTransit:
-        return 'In transit mark karo';
-      case TripStatus.delivered:
-        return 'Delivered mark karo';
-      case TripStatus.pod:
-        return 'POD mila mark karo';
-      case TripStatus.settled:
-        return 'Settle karo';
-    }
-  }
+  String get label => switch (this) {
+        TripStatus.booked => 'Booked',
+        TripStatus.loaded => 'Loaded',
+        TripStatus.inTransit => 'In transit',
+        TripStatus.delivered => 'POD baaki',
+        TripStatus.pod => 'POD mila',
+        TripStatus.settled => 'Settled',
+      };
+
+  String get short => switch (this) {
+        TripStatus.booked => 'Booked',
+        TripStatus.loaded => 'Loaded',
+        TripStatus.inTransit => 'Transit',
+        TripStatus.delivered => 'Delivered',
+        TripStatus.pod => 'POD',
+        TripStatus.settled => 'Settled',
+      };
+
+  String get action => switch (this) {
+        TripStatus.booked => 'Booked',
+        TripStatus.loaded => 'Loaded mark karo',
+        TripStatus.inTransit => 'In transit mark karo',
+        TripStatus.delivered => 'Delivered mark karo',
+        TripStatus.pod => 'POD mila mark karo',
+        TripStatus.settled => 'Settle karo',
+      };
 
   bool get isActive => index < TripStatus.delivered.index;
+  bool get isMoving => this == TripStatus.loaded || this == TripStatus.inTransit;
+}
+
+enum Role { agent, owner, driver, shipper }
+
+Role? roleFromDb(String? s) => switch (s) {
+      'agent' || 'staff' => Role.agent,
+      'owner' => Role.owner,
+      'driver' => Role.driver,
+      'shipper' => Role.shipper,
+      _ => null,
+    };
+
+class Profile {
+  final String id;
+  final String phone;
+  final String name;
+  final Role? role;
+  final String? officeId;
+  Profile(this.id, this.phone, this.name, this.role, this.officeId);
+  factory Profile.fromJson(Map<String, dynamic> j) => Profile(
+      _s(j['id']), _s(j['phone']), _s(j['name']), roleFromDb(j['role'] as String?), j['office_id'] as String?);
+}
+
+class Office {
+  final String id;
+  final String name;
+  final String city;
+  final String phone;
+  final String gst;
+  final int nextLr;
+  Office(this.id, this.name, this.city, this.phone, this.gst, this.nextLr);
+  factory Office.fromJson(Map<String, dynamic> j) =>
+      Office(_s(j['id']), _s(j['name']), _s(j['city']), _s(j['phone']), _s(j['gst_no']), _i(j['next_lr']));
 }
 
 class Party {
@@ -68,6 +123,8 @@ class Party {
   final String city;
   final String phone;
   Party(this.id, this.name, this.city, this.phone);
+  factory Party.fromJson(Map<String, dynamic> j) =>
+      Party(_s(j['id']), _s(j['name']), _s(j['city']), _s(j['phone']));
 }
 
 class TruckOwner {
@@ -75,85 +132,183 @@ class TruckOwner {
   final String name;
   final String phone;
   TruckOwner(this.id, this.name, this.phone);
+  factory TruckOwner.fromJson(Map<String, dynamic> j) => TruckOwner(_s(j['id']), _s(j['name']), _s(j['phone']));
 }
 
 class Truck {
+  final String id;
+  final String? ownerId;
   final String number;
   final String type;
-  final int capacityTon;
-  final String ownerId;
+  final double? capacityTon;
   final String driver;
   final String driverPhone;
   final List<String> routes;
-  Truck(this.number, this.type, this.capacityTon, this.ownerId, this.driver,
-      this.driverPhone, this.routes);
+  Truck(this.id, this.ownerId, this.number, this.type, this.capacityTon, this.driver, this.driverPhone,
+      this.routes);
+  factory Truck.fromJson(Map<String, dynamic> j) => Truck(
+        _s(j['id']),
+        j['owner_id'] as String?,
+        _s(j['number']),
+        _s(j['truck_type']),
+        _d(j['capacity_ton']),
+        _s(j['driver_name']),
+        _s(j['driver_phone']),
+        ((j['routes'] as List?) ?? const []).map((e) => e.toString()).toList(),
+      );
 }
 
 class Payment {
-  final DateTime date;
+  final String id;
+  final String tripId;
+  final String side; // party | owner
   final int amount;
   final String mode;
   final String note;
-  Payment(this.date, this.amount, this.mode, [this.note = '']);
+  final DateTime date;
+  Payment(this.id, this.tripId, this.side, this.amount, this.mode, this.note, this.date);
+  factory Payment.fromJson(Map<String, dynamic> j) => Payment(_s(j['id']), _s(j['trip_id']), _s(j['side']),
+      _i(j['amount']), _s(j['mode']), _s(j['note']), _date(j['paid_on']));
 }
 
 class Trip {
+  final String id;
   final int lr;
   final DateTime date;
   final String partyId;
   final String consignee;
-  final String truckNo;
+  final String truckId;
   final String from;
   final String to;
   final String material;
   final double weightTon;
   final int freight;
   final int hire;
-  TripStatus status;
-  final List<Payment> partyPayments;
-  final List<Payment> ownerPayments;
-  int partyDeduction;
-  int ownerDeduction;
-  DateTime? deductionDate;
-  double progress; // 0..1 of the route covered (for tracking)
-  final int distanceKm;
-  String nearPlace;
+  final TripStatus status;
+  final int partyDeduction;
+  final int ownerDeduction;
+  final String? podPath;
+  final List<Payment> payments = [];
+  double? lastLat;
+  double? lastLng;
+  DateTime? lastAt;
 
   Trip({
+    required this.id,
     required this.lr,
     required this.date,
     required this.partyId,
     required this.consignee,
-    required this.truckNo,
+    required this.truckId,
     required this.from,
     required this.to,
     required this.material,
     required this.weightTon,
     required this.freight,
     required this.hire,
-    this.status = TripStatus.booked,
-    List<Payment>? partyPayments,
-    List<Payment>? ownerPayments,
-    this.partyDeduction = 0,
-    this.ownerDeduction = 0,
-    this.deductionDate,
-    this.progress = 0,
-    this.distanceKm = 300,
-    this.nearPlace = '',
-  })  : partyPayments = partyPayments ?? <Payment>[],
-        ownerPayments = ownerPayments ?? <Payment>[];
+    required this.status,
+    required this.partyDeduction,
+    required this.ownerDeduction,
+    required this.podPath,
+  });
 
+  factory Trip.fromJson(Map<String, dynamic> j) => Trip(
+        id: _s(j['id']),
+        lr: _i(j['lr_no']),
+        date: _date(j['trip_date']),
+        partyId: _s(j['party_id']),
+        consignee: _s(j['consignee']),
+        truckId: _s(j['truck_id']),
+        from: _s(j['from_city']),
+        to: _s(j['to_city']),
+        material: _s(j['material']),
+        weightTon: _d(j['weight_ton']) ?? 0,
+        freight: _i(j['freight']),
+        hire: _i(j['hire']),
+        status: TripStatusX.fromDb(_s(j['status'])),
+        partyDeduction: _i(j['party_deduction']),
+        ownerDeduction: _i(j['owner_deduction']),
+        podPath: j['pod_path'] as String?,
+      );
+
+  List<Payment> get partyPayments => payments.where((p) => p.side == 'party').toList();
+  List<Payment> get ownerPayments => payments.where((p) => p.side == 'owner').toList();
   int get commission => freight - hire;
   int get partyReceived => partyPayments.fold(0, (s, p) => s + p.amount);
   int get ownerPaid => ownerPayments.fold(0, (s, p) => s + p.amount);
   int get partyBalance => freight - partyDeduction - partyReceived;
   int get ownerBalance => hire - ownerDeduction - ownerPaid;
   String get route => '$from → $to';
-  int get kmDone => (distanceKm * progress).round();
-  int get kmLeft => distanceKm - kmDone;
+}
+
+/// A trip seen by a truck owner, driver or shipper (only their side's money).
+class LinkedTrip {
+  final String id;
+  final int lr;
+  final DateTime date;
+  final TripStatus status;
+  final String relation; // party | owner | driver
+  final String from;
+  final String to;
+  final String material;
+  final double weightTon;
+  final String consignee;
+  final String truckNumber;
+  final String truckType;
+  final String driverName;
+  final String driverPhone;
+  final String ownerName;
+  final String ownerPhone;
+  final String partyName;
+  final String partyPhone;
+  final String officeName;
+  final String officePhone;
+  final int? amount;
+  final int? deduction;
+  final int? settled;
+  final String? podPath;
+  final double? lastLat;
+  final double? lastLng;
+  final DateTime? lastAt;
+
+  LinkedTrip.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        lr = _i(j['lr_no']),
+        date = _date(j['trip_date']),
+        status = TripStatusX.fromDb(_s(j['status'])),
+        relation = _s(j['my_relation']),
+        from = _s(j['from_city']),
+        to = _s(j['to_city']),
+        material = _s(j['material']),
+        weightTon = _d(j['weight_ton']) ?? 0,
+        consignee = _s(j['consignee']),
+        truckNumber = _s(j['truck_number']),
+        truckType = _s(j['truck_type']),
+        driverName = _s(j['driver_name']),
+        driverPhone = _s(j['driver_phone']),
+        ownerName = _s(j['owner_name']),
+        ownerPhone = _s(j['owner_phone']),
+        partyName = _s(j['party_name']),
+        partyPhone = _s(j['party_phone']),
+        officeName = _s(j['office_name']),
+        officePhone = _s(j['office_phone']),
+        amount = _ni(j['amount']),
+        deduction = _ni(j['deduction']),
+        settled = _ni(j['settled']),
+        podPath = j['pod_path'] as String?,
+        lastLat = _d(j['last_lat']),
+        lastLng = _d(j['last_lng']),
+        lastAt = _ndate(j['last_at']);
+
+  int get balance => (amount ?? 0) - (deduction ?? 0) - (settled ?? 0);
+  String get route => '$from → $to';
 }
 
 class LoadPost {
+  final String id;
+  final String postedBy;
+  final String posterName;
+  final String posterPhone;
   final String from;
   final String to;
   final String material;
@@ -161,34 +316,63 @@ class LoadPost {
   final String truckType;
   final String date;
   final int? rate;
-  final String postedBy;
-  final String ago;
-  LoadPost(this.from, this.to, this.material, this.weightTon, this.truckType,
-      this.date, this.rate, this.postedBy, this.ago);
+  final double? lat;
+  final double? lng;
+  final DateTime createdAt;
+  LoadPost.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        postedBy = _s(j['posted_by']),
+        posterName = _s(j['poster_name']),
+        posterPhone = _s(j['poster_phone']),
+        from = _s(j['from_city']),
+        to = _s(j['to_city']),
+        material = _s(j['material']),
+        weightTon = _d(j['weight_ton']) ?? 0,
+        truckType = _s(j['truck_type']),
+        date = _s(j['loading_date']),
+        rate = _ni(j['rate']),
+        lat = _d(j['lat']),
+        lng = _d(j['lng']),
+        createdAt = _date(j['created_at']);
 }
 
 class TruckPost {
+  final String id;
+  final String postedBy;
+  final String posterName;
+  final String posterPhone;
   final String truckNo;
   final String type;
-  final int capacityTon;
+  final double? capacityTon;
   final String area;
-  final int km;
+  final double? lat;
+  final double? lng;
   final List<String> wantTo;
-  final String postedBy;
-  final String ago;
-  TruckPost(this.truckNo, this.type, this.capacityTon, this.area, this.km,
-      this.wantTo, this.postedBy, this.ago);
+  final DateTime createdAt;
+  TruckPost.fromJson(Map<String, dynamic> j)
+      : id = _s(j['id']),
+        postedBy = _s(j['posted_by']),
+        posterName = _s(j['poster_name']),
+        posterPhone = _s(j['poster_phone']),
+        truckNo = _s(j['truck_number']),
+        type = _s(j['truck_type']),
+        capacityTon = _d(j['capacity_ton']),
+        area = _s(j['area']),
+        lat = _d(j['lat']),
+        lng = _d(j['lng']),
+        wantTo = ((j['want_to'] as List?) ?? const []).map((e) => e.toString()).toList(),
+        createdAt = _date(j['created_at']);
 }
 
 class LedgerEntry {
   final DateTime date;
   final String title;
   final String sub;
-  final int amount; // + = party owes more, - = received / deducted
-  final int lr;
-  int balance = 0;
+  final int amount;
+  final String tripId;
   final int order;
-  LedgerEntry(this.date, this.title, this.sub, this.amount, this.lr, this.order);
+  int balance = 0;
+  LedgerEntry(this.date, this.title, this.sub, this.amount, this.tripId, this.order);
 }
 
 class PaymentLine {
@@ -199,10 +383,8 @@ class PaymentLine {
   PaymentLine(this.who, this.payment, this.incoming, this.lr);
 }
 
-enum Role { agent, owner, driver, shipper }
-
 // ---------------------------------------------------------------------------
-// Formatting helpers
+// Formatting
 // ---------------------------------------------------------------------------
 
 String inr(int v) {
@@ -224,267 +406,219 @@ String inr(int v) {
 
 String num0(int v) => inr(v).replaceFirst('₹', '');
 
-const _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-];
+const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 String dm(DateTime d) => '${d.day.toString().padLeft(2, '0')} ${_months[d.month - 1]}';
-
 String fullDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
-
+String monthYear(DateTime d) => '${_months[d.month - 1]} ${d.year}';
 String ton(double t) => t == t.roundToDouble() ? '${t.round()} ton' : '$t ton';
 
+String ago(DateTime t) {
+  final m = DateTime.now().difference(t).inMinutes;
+  if (m < 1) return 'Abhi';
+  if (m < 60) return '$m min pehle';
+  final h = m ~/ 60;
+  if (h < 24) return '$h ghante pehle';
+  return '${h ~/ 24} din pehle';
+}
+
+String friendlyError(Object e) {
+  if (e is AuthException) {
+    if (e.message.toLowerCase().contains('invalid')) return 'PIN galat hai';
+    return e.message;
+  }
+  if (e is PostgrestException) return e.message;
+  if (e is FunctionException) {
+    final d = e.details;
+    if (d is Map && d['error'] != null) return d['error'].toString();
+    return 'Server se jawab nahi aaya';
+  }
+  final s = e.toString();
+  if (s.contains('SocketException') || s.contains('Failed host lookup')) {
+    return 'Internet nahi hai — connection check karo';
+  }
+  return s.replaceFirst('Exception: ', '');
+}
+
 // ---------------------------------------------------------------------------
-// App state (sample data for the prototype; Supabase comes in a later stage)
+// Repository: everything the screens read and write
 // ---------------------------------------------------------------------------
 
-class AppState extends ChangeNotifier {
-  final String officeName = 'Sharma Roadlines';
-  final String agentName = 'Rakesh';
-  final String officePhone = '98100 55221';
-  Role role = Role.agent;
-  bool driverLocationOn = false;
+class Repo extends ChangeNotifier {
+  SupabaseClient get db => Supabase.instance.client;
 
-  // Who is "logged in" for the non-agent roles in the demo.
-  final String demoOwnerId = 'o1';
-  final String demoDriver = 'Mohan';
-  final String demoShipperId = 'p1';
+  Profile? profile;
+  Office? office;
+  List<Party> parties = [];
+  List<TruckOwner> owners = [];
+  List<Truck> trucks = [];
+  List<Trip> trips = [];
+  List<LoadPost> loads = [];
+  List<TruckPost> truckPosts = [];
+  List<LinkedTrip> linked = [];
+  bool busy = false;
 
-  final List<Party> parties = [
-    Party('p1', 'Gupta Traders', 'Delhi', '98110 23456'),
-    Party('p2', 'Mittal Steels', 'Ghaziabad', '98734 11209'),
-    Party('p3', 'Arora Paper', 'Delhi', '99580 66431'),
-    Party('p4', 'Jain Plastics', 'Sonipat', '98120 77854'),
-  ];
+  double? myLat;
+  double? myLng;
+  bool locationAllowed = false;
+  Timer? _trackTimer;
 
-  final List<TruckOwner> owners = [
-    TruckOwner('o1', 'Balwinder Singh', '98140 22871'),
-    TruckOwner('o2', 'Ramesh Yadav', '94140 55320'),
-    TruckOwner('o3', 'Sukhdev Transport', '98126 40018'),
-    TruckOwner('o4', 'Harpreet Logistics', '98880 31452'),
-    TruckOwner('o5', 'Kailash Gurjar', '94600 18723'),
-    TruckOwner('o6', 'Patel Roadways', '98250 44190'),
-  ];
+  bool get signedIn => db.auth.currentSession != null;
+  Role? get role => profile?.role;
+  String get myName => (profile?.name.isNotEmpty ?? false) ? profile!.name : 'Ji';
 
-  final List<Truck> trucks = [
-    Truck('RJ14 GB 4821', 'Open body', 20, 'o1', 'Mohan', '98290 41177',
-        ['Delhi–Jaipur', 'Delhi–Ajmer']),
-    Truck('RJ14 GB 3317', 'Open body', 20, 'o1', 'Jagdish', '98290 63310',
-        ['Jaipur–Delhi', 'Jaipur–Punjab']),
-    Truck('RJ14 GD 2207', 'Container', 16, 'o2', 'Suresh', '94140 88213',
-        ['Jaipur–Delhi', 'Jaipur–Gurgaon']),
-    Truck('HR55 AC 9031', 'Trailer', 28, 'o3', 'Gurmeet', '98126 55102',
-        ['Gurgaon–Jaipur', 'Jaipur–Ahmedabad']),
-    Truck('HR38 K 7712', 'Open body', 25, 'o4', 'Sukha', '98880 70011',
-        ['Ghaziabad–Ludhiana']),
-    Truck('MP09 HG 3390', 'Container', 21, 'o5', 'Raju', '94600 31901',
-        ['Delhi–Indore']),
-    Truck('GJ01 BT 5566', 'Trailer', 30, 'o6', 'Bhavesh', '98250 61200',
-        ['Sonipat–Ahmedabad']),
-    Truck('RJ20 GA 1189', 'Open body', 18, 'o5', 'Prem', '94600 77345',
-        ['Delhi–Kota']),
-  ];
+  // ----- auth -----
+  Future<void> signIn(String phone, String pin) async {
+    final p = normPhone(phone);
+    await db.functions.invoke('pin-auth', body: {'phone': p, 'pin': pin});
+    await db.auth.signInWithPassword(email: '$p@$phoneLoginDomain', password: 'tw-$pin-$p');
+    await loadProfile();
+  }
 
-  late final List<Trip> trips = [
-    Trip(
-      lr: 1018,
-      date: DateTime(2026, 10, 2),
-      partyId: 'p1',
-      consignee: 'Ajmer Kirana Bhandar, Ajmer',
-      truckNo: 'RJ14 GB 4821',
-      from: 'Delhi',
-      to: 'Ajmer',
-      material: 'Kirana (bags)',
-      weightTon: 18,
-      freight: 28000,
-      hire: 26000,
-      status: TripStatus.settled,
-      partyPayments: [Payment(DateTime(2026, 10, 5), 28000, 'UPI')],
-      ownerPayments: [Payment(DateTime(2026, 10, 4), 26000, 'Bank')],
-      progress: 1,
-      distanceKm: 400,
-    ),
-    Trip(
-      lr: 1031,
-      date: DateTime(2026, 10, 14),
-      partyId: 'p1',
-      consignee: 'Kota Traders, Kota',
-      truckNo: 'RJ20 GA 1189',
-      from: 'Delhi',
-      to: 'Kota',
-      material: 'Kirana (bags)',
-      weightTon: 18,
-      freight: 36000,
-      hire: 33500,
-      status: TripStatus.settled,
-      partyPayments: [Payment(DateTime(2026, 10, 16), 36000, 'NEFT')],
-      ownerPayments: [Payment(DateTime(2026, 10, 16), 33500, 'UPI')],
-      progress: 1,
-      distanceKm: 500,
-    ),
-    Trip(
-      lr: 1039,
-      date: DateTime(2026, 10, 18),
-      partyId: 'p4',
-      consignee: 'Shah Polymers, Ahmedabad',
-      truckNo: 'GJ01 BT 5566',
-      from: 'Sonipat',
-      to: 'Ahmedabad',
-      material: 'Plastic granules',
-      weightTon: 28,
-      freight: 71000,
-      hire: 67000,
-      status: TripStatus.delivered,
-      partyPayments: [Payment(DateTime(2026, 10, 18), 40000, 'Bank')],
-      ownerPayments: [Payment(DateTime(2026, 10, 18), 45000, 'UPI')],
-      progress: 1,
-      distanceKm: 950,
-    ),
-    Trip(
-      lr: 1042,
-      date: DateTime(2026, 10, 20),
-      partyId: 'p1',
-      consignee: 'Shree Balaji Stores, Jaipur',
-      truckNo: 'RJ14 GB 4821',
-      from: 'Delhi',
-      to: 'Jaipur',
-      material: 'Kirana (bags)',
-      weightTon: 20,
-      freight: 45000,
-      hire: 42000,
-      status: TripStatus.inTransit,
-      partyPayments: [Payment(DateTime(2026, 10, 20), 30000, 'Bank', 'Advance')],
-      ownerPayments: [Payment(DateTime(2026, 10, 20), 35000, 'UPI', 'Advance')],
-      partyDeduction: 500,
-      ownerDeduction: 500,
-      deductionDate: DateTime(2026, 10, 22),
-      progress: 0.45,
-      distanceKm: 275,
-      nearPlace: 'Behror ke paas',
-    ),
-    Trip(
-      lr: 1043,
-      date: DateTime(2026, 10, 21),
-      partyId: 'p2',
-      consignee: 'Punjab Steel Works, Ludhiana',
-      truckNo: 'HR38 K 7712',
-      from: 'Ghaziabad',
-      to: 'Ludhiana',
-      material: 'Steel coil',
-      weightTon: 24,
-      freight: 38000,
-      hire: 35500,
-      status: TripStatus.loaded,
-      partyPayments: [Payment(DateTime(2026, 10, 21), 20000, 'Cash', 'Advance')],
-      ownerPayments: [Payment(DateTime(2026, 10, 21), 25000, 'Cash', 'Advance')],
-      progress: 0.05,
-      distanceKm: 330,
-      nearPlace: 'Ghaziabad',
-    ),
-    Trip(
-      lr: 1044,
-      date: DateTime(2026, 10, 22),
-      partyId: 'p3',
-      consignee: 'Malwa Paper Mart, Indore',
-      truckNo: 'MP09 HG 3390',
-      from: 'Delhi',
-      to: 'Indore',
-      material: 'Paper reels',
-      weightTon: 20,
-      freight: 62000,
-      hire: 58000,
-      status: TripStatus.booked,
-      distanceKm: 810,
-    ),
-  ];
+  Future<void> signOut() async {
+    stopTracking();
+    await db.auth.signOut();
+    profile = null;
+    office = null;
+    parties = [];
+    owners = [];
+    trucks = [];
+    trips = [];
+    linked = [];
+    notifyListeners();
+  }
 
-  final List<LoadPost> loads = [
-    LoadPost('Jaipur', 'Ludhiana', 'Marble', 18, 'Open body', '23 Oct', null,
-        'Jai Ambe Transport', '10 min pehle'),
-    LoadPost('Jaipur', 'Delhi', 'Kapda (gaanth)', 15, 'Koi bhi', '24 Oct', 32000,
-        'Sharma Roadlines', '1 ghanta pehle'),
-    LoadPost('Jaipur', 'Ahmedabad', 'Tiles', 26, 'Trailer', '24 Oct', null,
-        'Marudhar Carriers', '3 ghante pehle'),
-  ];
+  Future<void> loadProfile() async {
+    final uid = db.auth.currentUser?.id;
+    if (uid == null) return;
+    final row = await db.from('profiles').select().eq('id', uid).maybeSingle();
+    profile = row == null ? null : Profile.fromJson(row);
+    if (profile?.officeId != null) {
+      final o = await db.from('offices').select().eq('id', profile!.officeId!).maybeSingle();
+      office = o == null ? null : Office.fromJson(o);
+    }
+    notifyListeners();
+  }
 
-  final List<TruckPost> truckPosts = [
-    TruckPost('RJ14 GD 2207', 'Container', 16, 'Transport Nagar, Jaipur', 6,
-        ['Gurgaon'], 'Driver Suresh', '1 ghanta pehle'),
-    TruckPost('HR55 AC 9031', 'Trailer', 28, 'Bagru, Jaipur', 30,
-        ['Ahmedabad', 'Kahin bhi'], 'Sukhdev Transport', '3 ghante pehle'),
-  ];
+  Future<void> createOffice({
+    required String name,
+    required String person,
+    required String city,
+    required String phone,
+    required String gst,
+    required int startLr,
+  }) async {
+    await db.rpc('create_office', params: {
+      'p_name': name,
+      'p_person': person,
+      'p_city': city,
+      'p_phone': phone,
+      'p_gst': gst,
+      'p_start_lr': startLr,
+    });
+    await loadProfile();
+  }
 
-  int nextLr = 1045;
+  Future<void> setRole(Role r, String name) async {
+    await db.rpc('set_my_role', params: {
+      'p_role': switch (r) { Role.agent => 'agent', Role.owner => 'owner', Role.driver => 'driver', Role.shipper => 'shipper' },
+      'p_name': name,
+    });
+    await loadProfile();
+  }
 
-  // ---- lookups ----
-  Party party(String id) => parties.firstWhere((p) => p.id == id);
-  TruckOwner owner(String id) => owners.firstWhere((o) => o.id == id);
-  Truck truck(String no) => trucks.firstWhere((t) => t.number == no,
-      orElse: () => Truck(no, 'Open body', 20, 'o1', 'Driver', '-', []));
-  Trip trip(int lr) => trips.firstWhere((t) => t.lr == lr);
-  TruckOwner ownerOfTruck(String no) => owner(truck(no).ownerId);
+  // ----- agent office data -----
+  Future<void> refreshOffice() async {
+    if (profile?.officeId == null) return;
+    final results = await Future.wait<dynamic>([
+      db.from('parties').select().order('name'),
+      db.from('truck_owners').select().order('name'),
+      db.from('trucks').select().order('number'),
+      db.from('trips').select().order('lr_no', ascending: false).limit(500),
+      db.from('payments').select().order('paid_on', ascending: false).limit(2000),
+      db.from('offices').select().eq('id', profile!.officeId!).maybeSingle(),
+    ]);
+    parties = (results[0] as List).map((e) => Party.fromJson(e)).toList();
+    owners = (results[1] as List).map((e) => TruckOwner.fromJson(e)).toList();
+    trucks = (results[2] as List).map((e) => Truck.fromJson(e)).toList();
+    trips = (results[3] as List).map((e) => Trip.fromJson(e)).toList();
+    final pays = (results[4] as List).map((e) => Payment.fromJson(e)).toList();
+    final byId = {for (final t in trips) t.id: t};
+    for (final p in pays) {
+      byId[p.tripId]?.payments.add(p);
+    }
+    if (results[5] != null) office = Office.fromJson(results[5] as Map<String, dynamic>);
 
-  List<Trip> get tripsNewestFirst =>
-      [...trips]..sort((a, b) => b.lr.compareTo(a.lr));
-  List<Trip> get activeTrips =>
-      tripsNewestFirst.where((t) => t.status.isActive).toList();
+    final moving = trips.where((t) => t.status.isMoving).map((t) => t.id).toList();
+    if (moving.isNotEmpty) {
+      final locs = await db
+          .from('trip_locations')
+          .select('trip_id, lat, lng, recorded_at')
+          .inFilter('trip_id', moving)
+          .order('recorded_at', ascending: false)
+          .limit(300);
+      for (final l in (locs as List)) {
+        final t = byId[l['trip_id']];
+        if (t != null && t.lastLat == null) {
+          t.lastLat = _d(l['lat']);
+          t.lastLng = _d(l['lng']);
+          t.lastAt = _ndate(l['recorded_at']);
+        }
+      }
+    }
+    notifyListeners();
+  }
 
-  int get totalReceivable => trips.fold(
-      0, (s, t) => s + (t.partyBalance > 0 ? t.partyBalance : 0));
-  int get totalPayable =>
-      trips.fold(0, (s, t) => s + (t.ownerBalance > 0 ? t.ownerBalance : 0));
-  int get receivableParties =>
-      trips.where((t) => t.partyBalance > 0).map((t) => t.partyId).toSet().length;
-  int get payableOwners => trips
-      .where((t) => t.ownerBalance > 0)
-      .map((t) => truck(t.truckNo).ownerId)
-      .toSet()
-      .length;
-  List<Trip> get monthTrips =>
-      trips.where((t) => t.date.year == 2026 && t.date.month == 10).toList();
+  Party? party(String id) => _first(parties.where((p) => p.id == id));
+  Truck? truck(String id) => _first(trucks.where((t) => t.id == id));
+  TruckOwner? owner(String? id) => _first(owners.where((o) => o.id == id));
+  Trip? trip(String id) => _first(trips.where((t) => t.id == id));
+  String partyName(String id) => party(id)?.name ?? '—';
+  String truckNo(String id) => truck(id)?.number ?? '—';
+
+  List<Trip> get activeTrips => trips.where((t) => t.status.isActive).toList();
+  int get totalReceivable => trips.fold(0, (s, t) => s + (t.partyBalance > 0 ? t.partyBalance : 0));
+  int get totalPayable => trips.fold(0, (s, t) => s + (t.ownerBalance > 0 ? t.ownerBalance : 0));
+  int get receivableParties => trips.where((t) => t.partyBalance > 0).map((t) => t.partyId).toSet().length;
+  int get payableOwners =>
+      trips.where((t) => t.ownerBalance > 0).map((t) => truck(t.truckId)?.ownerId).toSet().length;
+  List<Trip> get monthTrips {
+    final n = DateTime.now();
+    return trips.where((t) => t.date.year == n.year && t.date.month == n.month).toList();
+  }
+
   int get monthCommission => monthTrips.fold(0, (s, t) => s + t.commission);
-
-  int partyBalance(String partyId) => trips
-      .where((t) => t.partyId == partyId)
-      .fold(0, (s, t) => s + t.partyBalance);
-  int ownerBalance(String ownerId) => trips
-      .where((t) => truck(t.truckNo).ownerId == ownerId)
-      .fold(0, (s, t) => s + t.ownerBalance);
+  int partyBalance(String id) => trips.where((t) => t.partyId == id).fold(0, (s, t) => s + t.partyBalance);
+  int ownerBalance(String id) =>
+      trips.where((t) => truck(t.truckId)?.ownerId == id).fold(0, (s, t) => s + t.ownerBalance);
 
   List<PaymentLine> get recentPayments {
     final list = <PaymentLine>[];
     for (final t in trips) {
-      for (final p in t.partyPayments) {
-        list.add(PaymentLine(party(t.partyId).name, p, true, t.lr));
-      }
-      for (final p in t.ownerPayments) {
-        list.add(PaymentLine('${ownerOfTruck(t.truckNo).name} (owner)', p, false, t.lr));
+      for (final p in t.payments) {
+        final who = p.side == 'party'
+            ? partyName(t.partyId)
+            : '${owner(truck(t.truckId)?.ownerId)?.name ?? 'Truck owner'} (owner)';
+        list.add(PaymentLine(who, p, p.side == 'party', t.lr));
       }
     }
-    list.sort((a, b) {
-      final c = b.payment.date.compareTo(a.payment.date);
-      return c != 0 ? c : b.lr.compareTo(a.lr);
-    });
+    list.sort((a, b) => b.payment.date.compareTo(a.payment.date));
     return list;
   }
 
-  /// Party ledger, newest first, with running balance.
   List<LedgerEntry> partyLedger(String partyId) {
     final entries = <LedgerEntry>[];
     var seq = 0;
-    final ts = trips.where((t) => t.partyId == partyId).toList()
-      ..sort((a, b) => a.lr.compareTo(b.lr));
+    final ts = trips.where((t) => t.partyId == partyId).toList()..sort((a, b) => a.lr.compareTo(b.lr));
     for (final t in ts) {
-      entries.add(LedgerEntry(t.date, t.route, 'LR ${t.lr} · freight', t.freight, t.lr, seq++));
+      entries.add(LedgerEntry(t.date, t.route, 'LR ${t.lr} · freight', t.freight, t.id, seq++));
       for (final p in t.partyPayments) {
         final title = p.note.isNotEmpty ? '${p.note} mila · ${p.mode}' : 'Payment mila · ${p.mode}';
-        entries.add(LedgerEntry(p.date, title, 'LR ${t.lr}', -p.amount, t.lr, seq++));
+        entries.add(LedgerEntry(p.date, title, 'LR ${t.lr}', -p.amount, t.id, seq++));
       }
       if (t.partyDeduction > 0) {
-        entries.add(LedgerEntry(t.deductionDate ?? t.date, 'Shortage kata',
-            'LR ${t.lr}', -t.partyDeduction, t.lr, seq++));
+        entries.add(LedgerEntry(t.date, 'Shortage / kata', 'LR ${t.lr}', -t.partyDeduction, t.id, seq++));
       }
     }
     entries.sort((a, b) {
@@ -499,11 +633,44 @@ class AppState extends ChangeNotifier {
     return entries.reversed.toList();
   }
 
-  // ---- mutations ----
-  Trip addTrip({
+  String get _officeId => profile!.officeId!;
+
+  Future<void> addParty(String name, String city, String phone) async {
+    await db.from('parties').insert({'office_id': _officeId, 'name': name, 'city': city, 'phone': normPhone(phone)});
+    await refreshOffice();
+  }
+
+  Future<void> addOwner(String name, String phone) async {
+    await db.from('truck_owners').insert({'office_id': _officeId, 'name': name, 'phone': normPhone(phone)});
+    await refreshOffice();
+  }
+
+  Future<void> addTruck({
+    required String number,
+    required String type,
+    required double? capacity,
+    required String? ownerId,
+    required String driver,
+    required String driverPhone,
+    required List<String> routes,
+  }) async {
+    await db.from('trucks').insert({
+      'office_id': _officeId,
+      'number': number.toUpperCase(),
+      'truck_type': type,
+      'capacity_ton': capacity,
+      'owner_id': ownerId,
+      'driver_name': driver,
+      'driver_phone': normPhone(driverPhone),
+      'routes': routes,
+    });
+    await refreshOffice();
+  }
+
+  Future<Trip> addTrip({
     required String partyId,
     required String consignee,
-    required String truckNo,
+    required String truckId,
     required String from,
     required String to,
     required String material,
@@ -512,92 +679,280 @@ class AppState extends ChangeNotifier {
     required int hire,
     required int partyAdvance,
     required int ownerAdvance,
-  }) {
-    final now = DateTime(2026, 10, 22);
-    final t = Trip(
-      lr: nextLr++,
-      date: now,
-      partyId: partyId,
-      consignee: consignee,
-      truckNo: truckNo,
-      from: from,
-      to: to,
-      material: material,
-      weightTon: weightTon,
-      freight: freight,
-      hire: hire,
-      partyPayments: [if (partyAdvance > 0) Payment(now, partyAdvance, 'Cash', 'Advance')],
-      ownerPayments: [if (ownerAdvance > 0) Payment(now, ownerAdvance, 'Cash', 'Advance')],
-      nearPlace: from,
-    );
-    trips.add(t);
-    notifyListeners();
-    return t;
+  }) async {
+    final row = await db
+        .from('trips')
+        .insert({
+          'office_id': _officeId,
+          'lr_no': 0,
+          'trip_date': _ymd(DateTime.now()),
+          'party_id': partyId,
+          'consignee': consignee,
+          'truck_id': truckId,
+          'from_city': from,
+          'to_city': to,
+          'material': material,
+          'weight_ton': weightTon,
+          'freight': freight,
+          'hire': hire,
+        })
+        .select()
+        .single();
+    final t = Trip.fromJson(row);
+    final pays = <Map<String, dynamic>>[
+      if (partyAdvance > 0)
+        {'office_id': _officeId, 'trip_id': t.id, 'side': 'party', 'amount': partyAdvance, 'mode': 'Cash', 'note': 'Advance'},
+      if (ownerAdvance > 0)
+        {'office_id': _officeId, 'trip_id': t.id, 'side': 'owner', 'amount': ownerAdvance, 'mode': 'Cash', 'note': 'Advance'},
+    ];
+    if (pays.isNotEmpty) await db.from('payments').insert(pays);
+    await refreshOffice();
+    return trip(t.id) ?? t;
   }
 
-  void addPayment(Trip t, {required bool party, required int amount, required String mode}) {
-    final p = Payment(DateTime(2026, 10, 22), amount, mode);
-    if (party) {
-      t.partyPayments.add(p);
+  Future<void> addPayment(Trip t, {required bool party, required int amount, required String mode}) async {
+    await db.from('payments').insert({
+      'office_id': _officeId,
+      'trip_id': t.id,
+      'side': party ? 'party' : 'owner',
+      'amount': amount,
+      'mode': mode,
+      'paid_on': _ymd(DateTime.now()),
+    });
+    await refreshOffice();
+  }
+
+  Future<void> addDeduction(Trip t, {required int amount, required bool bothSides}) async {
+    await db.from('trips').update({
+      'party_deduction': t.partyDeduction + amount,
+      if (bothSides) 'owner_deduction': t.ownerDeduction + amount,
+    }).eq('id', t.id);
+    await refreshOffice();
+  }
+
+  Future<void> setTripStatus(Trip t, TripStatus s) async {
+    await db.from('trips').update({'status': s.db}).eq('id', t.id);
+    await refreshOffice();
+  }
+
+  // ----- linked roles (owner / driver / shipper) -----
+  Future<void> refreshLinked() async {
+    final rows = await db.rpc('linked_trips');
+    linked = (rows as List).map((e) => LinkedTrip.fromJson(e as Map<String, dynamic>)).toList();
+    notifyListeners();
+  }
+
+  List<LinkedTrip> linkedAs(String relation) => linked.where((t) => t.relation == relation).toList();
+
+  Future<void> driverSetStatus(String tripId, TripStatus s) async {
+    await db.rpc('driver_update_trip', params: {'p_trip': tripId, 'p_status': s.db, 'p_pod': null});
+    await refreshLinked();
+    if (s.isMoving) {
+      await sendLocationNow();
+    }
+  }
+
+  Future<void> uploadPod(String tripId, Uint8List bytes, {required bool asOffice}) async {
+    final path = '$tripId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    await db.storage.from('pod').uploadBinary(path, bytes,
+        fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false));
+    await db.rpc('driver_update_trip', params: {'p_trip': tripId, 'p_status': null, 'p_pod': path});
+    if (asOffice) {
+      await refreshOffice();
     } else {
-      t.ownerPayments.add(p);
+      await refreshLinked();
+    }
+  }
+
+  Future<String> podUrl(String path) => db.storage.from('pod').createSignedUrl(path, 3600);
+
+  // ----- load board -----
+  Future<void> refreshBoard() async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final r = await Future.wait<dynamic>([
+      db.from('loads').select().eq('status', 'open').gt('expires_at', now).order('created_at', ascending: false).limit(200),
+      db
+          .from('truck_posts')
+          .select()
+          .eq('status', 'open')
+          .gt('expires_at', now)
+          .order('created_at', ascending: false)
+          .limit(200),
+    ]);
+    loads = (r[0] as List).map((e) => LoadPost.fromJson(e)).toList();
+    truckPosts = (r[1] as List).map((e) => TruckPost.fromJson(e)).toList();
+    if (myLat != null) {
+      double dist(double? la, double? ln) => (la == null || ln == null) ? 99999 : kmBetween(myLat!, myLng!, la, ln);
+      loads.sort((a, b) => dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng)));
+      truckPosts.sort((a, b) => dist(a.lat, a.lng).compareTo(dist(b.lat, b.lng)));
     }
     notifyListeners();
   }
 
-  void advanceStatus(Trip t) {
-    if (t.status == TripStatus.settled) return;
-    t.status = TripStatus.values[t.status.index + 1];
-    if (t.status == TripStatus.inTransit && t.progress < 0.1) {
-      t.progress = 0.1;
+  int? kmFromMe(double? lat, double? lng) {
+    if (myLat == null || lat == null || lng == null) return null;
+    return roadKm(myLat!, myLng!, lat, lng);
+  }
+
+  String get posterName => office?.name ?? (profile?.name.isNotEmpty == true ? profile!.name : 'TransWell user');
+
+  Future<void> postLoad({
+    required String from,
+    required String to,
+    required String material,
+    required double weight,
+    required String truckType,
+    required String date,
+    required int? rate,
+    required bool showPhone,
+  }) async {
+    final c = coordsOf(from);
+    await db.from('loads').insert({
+      'posted_by': db.auth.currentUser!.id,
+      'poster_name': posterName,
+      'poster_phone': showPhone ? profile?.phone : null,
+      'from_city': from,
+      'to_city': to,
+      'material': material,
+      'weight_ton': weight,
+      'truck_type': truckType,
+      'loading_date': date,
+      'rate': rate,
+      'lat': c?.$1 ?? myLat,
+      'lng': c?.$2 ?? myLng,
+    });
+    await refreshBoard();
+  }
+
+  Future<void> postTruck({
+    required String number,
+    required String type,
+    required double? capacity,
+    required List<String> wantTo,
+  }) async {
+    await refreshMyPosition();
+    final area = myLat != null ? nearLabel(myLat!, myLng!) : (office?.city ?? '');
+    await db.from('truck_posts').insert({
+      'posted_by': db.auth.currentUser!.id,
+      'poster_name': posterName,
+      'poster_phone': profile?.phone,
+      'truck_number': number.toUpperCase(),
+      'truck_type': type,
+      'capacity_ton': capacity,
+      'area': area,
+      'lat': myLat,
+      'lng': myLng,
+      'want_to': wantTo,
+    });
+    await refreshBoard();
+  }
+
+  Future<void> closeLoad(LoadPost l) async {
+    await db.from('loads').update({'status': 'fixed'}).eq('id', l.id);
+    await refreshBoard();
+  }
+
+  Future<void> closeTruckPost(TruckPost p) async {
+    await db.from('truck_posts').update({'status': 'booked'}).eq('id', p.id);
+    await refreshBoard();
+  }
+
+  bool isMine(String postedBy) => postedBy == db.auth.currentUser?.id;
+
+  // ----- location -----
+  Future<bool> ensureLocationPermission({bool ask = true}) async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      locationAllowed = false;
+      return false;
     }
-    if (t.status.index >= TripStatus.delivered.index) {
-      t.progress = 1;
-      t.nearPlace = t.to;
+    var p = await Geolocator.checkPermission();
+    if (p == LocationPermission.denied && ask) p = await Geolocator.requestPermission();
+    locationAllowed = p == LocationPermission.always || p == LocationPermission.whileInUse;
+    notifyListeners();
+    return locationAllowed;
+  }
+
+  Future<void> refreshMyPosition({bool ask = false}) async {
+    try {
+      if (!await ensureLocationPermission(ask: ask)) return;
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium, timeLimit: Duration(seconds: 15)),
+      );
+      myLat = pos.latitude;
+      myLng = pos.longitude;
+      if (signedIn) {
+        await db.rpc('update_my_position', params: {'p_lat': myLat, 'p_lng': myLng});
+      }
+      notifyListeners();
+    } catch (_) {
+      // Location is optional; the app works without it.
     }
-    notifyListeners();
   }
 
-  void setStatus(Trip t, TripStatus s) {
-    t.status = s;
-    if (s.index >= TripStatus.delivered.index) {
-      t.progress = 1;
-      t.nearPlace = t.to;
+  /// Sends the driver's position for every moving trip they drive.
+  Future<void> sendLocationNow() async {
+    try {
+      if (!await ensureLocationPermission(ask: false)) return;
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 20)),
+      );
+      myLat = pos.latitude;
+      myLng = pos.longitude;
+      final uid = db.auth.currentUser?.id;
+      if (uid == null) return;
+      final moving = linked.where((t) => t.relation == 'driver' && t.status.isMoving).toList();
+      if (moving.isNotEmpty) {
+        await db.from('trip_locations').insert([
+          for (final t in moving)
+            {
+              'trip_id': t.id,
+              'user_id': uid,
+              'lat': pos.latitude,
+              'lng': pos.longitude,
+              'speed': pos.speed * 3.6,
+            }
+        ]);
+      }
+      await db.rpc('update_my_position', params: {'p_lat': myLat, 'p_lng': myLng});
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void startTracking() {
+    _trackTimer?.cancel();
+    sendLocationNow();
+    _trackTimer = Timer.periodic(const Duration(minutes: 2), (_) => sendLocationNow());
+  }
+
+  void stopTracking() {
+    _trackTimer?.cancel();
+    _trackTimer = null;
+  }
+
+  Future<void> run(Future<void> Function() job) async {
+    busy = true;
+    notifyListeners();
+    try {
+      await job();
+    } finally {
+      busy = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
-  void postLoad(LoadPost l) {
-    loads.insert(0, l);
-    notifyListeners();
-  }
-
-  final Set<String> postedTrucks = {};
-
-  void postTruck(Truck t, List<String> wantTo) {
-    postedTrucks.add(t.number);
-    truckPosts.insert(
-        0,
-        TruckPost(t.number, t.type, t.capacityTon, 'Sitapura, Jaipur', 3,
-            wantTo.isEmpty ? ['Kahin bhi'] : wantTo, owner(t.ownerId).name, 'Abhi'));
-    notifyListeners();
-  }
-
-  void setRole(Role r) {
-    role = r;
-    notifyListeners();
-  }
-
-  void allowLocation() {
-    driverLocationOn = true;
-    notifyListeners();
+  @override
+  void dispose() {
+    stopTracking();
+    super.dispose();
   }
 }
 
-class AppScope extends InheritedNotifier<AppState> {
-  const AppScope({super.key, required AppState state, required super.child})
-      : super(notifier: state);
+class AppScope extends InheritedNotifier<Repo> {
+  const AppScope({super.key, required Repo repo, required super.child}) : super(notifier: repo);
 
-  static AppState of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
+  static Repo of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
+
+  /// Read without subscribing (for callbacks).
+  static Repo read(BuildContext context) =>
+      (context.getElementForInheritedWidgetOfExactType<AppScope>()!.widget as AppScope).notifier!;
 }
