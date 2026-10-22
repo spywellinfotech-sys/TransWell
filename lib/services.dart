@@ -346,7 +346,7 @@ Future<Uint8List> challanPdf({
         data: [
           for (final l in lines)
             ['${l.lr}', l.party, l.consignee, l.to, l.material, l.packages, l.weight, l.payType, l.toPay == 0 ? '' : num0(l.toPay)],
-          ['TOTAL', '${lines.length} bilty', '', '', '', '', '', '', num0(lines.fold(0, (s, l) => s + l.toPay))],
+          ['TOTAL', '${lines.length} bilty', '', '', '', '', '', '', num0(lines.fold<int>(0, (s, l) => s + l.toPay))],
         ],
         headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold),
         cellStyle: const pw.TextStyle(fontSize: 8.5),

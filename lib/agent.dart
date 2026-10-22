@@ -771,7 +771,7 @@ class _NewTripScreenState extends State<NewTripScreen> {
 BiltyData biltyFor(Repo s, Trip t) {
   final p = s.party(t.partyId);
   final tr = s.truck(t.truckId);
-  final adv = t.partyPayments.where((p) => p.note == 'Advance').fold(0, (a, p) => a + p.amount);
+  final adv = t.partyPayments.where((p) => p.note == 'Advance').fold<int>(0, (a, p) => a + p.amount);
   return BiltyData(
     officeName: s.office?.name ?? '',
     officePhone: s.office?.phone ?? '',
@@ -1292,9 +1292,9 @@ class PartyLedgerScreen extends StatelessWidget {
     if (p == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('Party nahi mili')));
     final entries = s.partyLedger(partyId);
     final ts = s.trips.where((t) => t.partyId == partyId).toList();
-    final freight = ts.fold(0, (a, t) => a + t.freight);
-    final got = ts.fold(0, (a, t) => a + t.partyReceived);
-    final ded = ts.fold(0, (a, t) => a + t.partyDeduction);
+    final freight = ts.fold<int>(0, (a, t) => a + t.freight);
+    final got = ts.fold<int>(0, (a, t) => a + t.partyReceived);
+    final ded = ts.fold<int>(0, (a, t) => a + t.partyDeduction);
     final bal = s.partyBalance(partyId);
     final open = ts.where((t) => t.partyBalance > 0).toList();
     Widget mini(String k, String v) => Expanded(

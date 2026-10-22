@@ -647,7 +647,7 @@ class PartLoadSection extends StatelessWidget {
     final r = AppScope.of(context);
     final cap = r.truck(t.truckId)?.capacityTon;
     final used = t.loadedTons;
-    final toPay = t.bilties.where((c) => c.isToPay).fold(0, (s, c) => s + c.balance);
+    final toPay = t.bilties.where((c) => c.isToPay).fold<int>(0, (s, c) => s + c.balance);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

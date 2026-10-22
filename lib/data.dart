@@ -174,7 +174,7 @@ class Consignment {
 
   bool get isParcel => service == 'parcel';
   bool get isToPay => payType == 'to_pay';
-  int get received => payments.fold(0, (s, p) => s + p.amount);
+  int get received => payments.fold<int>(0, (s, p) => s + p.amount);
   int get balance => freight - received;
   String get route => '$from → $to';
 
@@ -399,14 +399,14 @@ class Trip {
       );
 
   bool get isPart => loadType == 'part';
-  int get biltyFreight => bilties.fold(0, (s, c) => s + c.freight);
+  int get biltyFreight => bilties.fold<int>(0, (s, c) => s + c.freight);
   double get loadedTons => bilties.fold(0.0, (s, c) => s + c.tons);
 
   List<Payment> get partyPayments => payments.where((p) => p.side == 'party' && p.consignmentId == null).toList();
   List<Payment> get ownerPayments => payments.where((p) => p.side == 'owner').toList();
   int get commission => (isPart ? biltyFreight : freight) - hire;
-  int get partyReceived => partyPayments.fold(0, (s, p) => s + p.amount);
-  int get ownerPaid => ownerPayments.fold(0, (s, p) => s + p.amount);
+  int get partyReceived => partyPayments.fold<int>(0, (s, p) => s + p.amount);
+  int get ownerPaid => ownerPayments.fold<int>(0, (s, p) => s + p.amount);
   int get partyBalance => isPart ? 0 : freight - partyDeduction - partyReceived;
   int get ownerBalance => hire - ownerDeduction - ownerPaid;
   String get route => '$from → $to';
@@ -767,11 +767,11 @@ class Repo extends ChangeNotifier {
   String truckNo(String id) => truck(id)?.number ?? '—';
 
   List<Trip> get activeTrips => trips.where((t) => t.status.isActive).toList();
-  int get totalReceivable => parties.fold(0, (s, p) {
+  int get totalReceivable => parties.fold<int>(0, (s, p) {
         final b = partyBalance(p.id);
         return s + (b > 0 ? b : 0);
       });
-  int get totalPayable => owners.fold(0, (s, o) {
+  int get totalPayable => owners.fold<int>(0, (s, o) {
         final b = ownerBalance(o.id);
         return s + (b > 0 ? b : 0);
       });
@@ -782,20 +782,20 @@ class Repo extends ChangeNotifier {
     return trips.where((t) => t.date.year == n.year && t.date.month == n.month).toList();
   }
 
-  int get monthCommission => monthTrips.fold(0, (s, t) => s + t.commission);
+  int get monthCommission => monthTrips.fold<int>(0, (s, t) => s + t.commission);
   int partyBalance(String id) =>
       (party(id)?.opening ?? 0) +
-      trips.where((t) => t.partyId == id).fold(0, (s, t) => s + t.partyBalance) +
+      trips.where((t) => t.partyId == id).fold<int>(0, (s, t) => s + t.partyBalance) +
       bilties.where((c) => c.partyId == id && !c.isToPay).fold<int>(0, (s, c) => s + c.balance);
 
   /// Bilties still in the godown (booked, no truck yet).
   List<Consignment> get godown => bilties.where((c) => c.tripId == null && c.status == 'booked').toList();
   List<Consignment> get toPayPending => bilties.where((c) => c.isToPay && c.balance > 0).toList();
-  int get toPayTotal => toPayPending.fold(0, (s, c) => s + c.balance);
+  int get toPayTotal => toPayPending.fold<int>(0, (s, c) => s + c.balance);
   Consignment? bilty(String id) => _first(bilties.where((c) => c.id == id));
   int ownerBalance(String id) =>
       (owner(id)?.opening ?? 0) +
-      trips.where((t) => truck(t.truckId)?.ownerId == id).fold(0, (s, t) => s + t.ownerBalance);
+      trips.where((t) => truck(t.truckId)?.ownerId == id).fold<int>(0, (s, t) => s + t.ownerBalance);
 
   List<PaymentLine> get recentPayments {
     final list = <PaymentLine>[];

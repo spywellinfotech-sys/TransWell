@@ -528,7 +528,7 @@ class _OpeningBalanceScreenState extends State<OpeningBalanceScreen> {
     super.dispose();
   }
 
-  int get total => rows.fold(0, (s, r) => s + (int.tryParse(r.amount.text.replaceAll(RegExp(r'[^0-9-]'), '')) ?? 0));
+  int get total => rows.fold<int>(0, (s, r) => s + (int.tryParse(r.amount.text.replaceAll(RegExp(r'[^0-9-]'), '')) ?? 0));
 
   Future<void> _save() async {
     setState(() => saving = true);
@@ -703,11 +703,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           cell(''),
           cell(''),
           cell(''),
-          cell(num0(trips.fold(0, (s, t) => s + (t.isPart ? t.biltyFreight : t.freight))), bold: true),
-          cell(num0(trips.fold(0, (s, t) => s + t.hire)), bold: true),
-          cell(num0(trips.fold(0, (s, t) => s + t.commission)), bold: true, color: C.brand),
-          cell(num0(trips.fold(0, (s, t) => s + t.partyBalance)), bold: true, color: C.recv),
-          cell(num0(trips.fold(0, (s, t) => s + t.ownerBalance)), bold: true, color: C.pay),
+          cell(num0(trips.fold<int>(0, (s, t) => s + (t.isPart ? t.biltyFreight : t.freight))), bold: true),
+          cell(num0(trips.fold<int>(0, (s, t) => s + t.hire)), bold: true),
+          cell(num0(trips.fold<int>(0, (s, t) => s + t.commission)), bold: true, color: C.brand),
+          cell(num0(trips.fold<int>(0, (s, t) => s + t.partyBalance)), bold: true, color: C.recv),
+          cell(num0(trips.fold<int>(0, (s, t) => s + t.ownerBalance)), bold: true, color: C.pay),
         ]),
       ],
     );
@@ -754,11 +754,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           cell(''),
           cell(''),
           cell(''),
-          cell('${bilties.fold(0, (s, c) => s + (c.packages ?? 0))}', bold: true),
+          cell('${bilties.fold<int>(0, (s, c) => s + (c.packages ?? 0))}', bold: true),
           cell(''),
-          cell(num0(bilties.fold(0, (s, c) => s + c.freight)), bold: true),
+          cell(num0(bilties.fold<int>(0, (s, c) => s + c.freight)), bold: true),
           cell(''),
-          cell(num0(bilties.fold(0, (s, c) => s + c.balance)), bold: true),
+          cell(num0(bilties.fold<int>(0, (s, c) => s + c.balance)), bold: true),
           cell(''),
         ]),
       ],
@@ -859,8 +859,8 @@ Future<Uint8List> registerPdf(Repo r, DateTime month, List<Trip> trips, List<Con
               c.payLabel,
               num0(c.balance),
             ],
-          ['TOTAL', '${bilties.length}', '', '', '', '${bilties.fold(0, (s, c) => s + (c.packages ?? 0))}', '',
-            num0(bilties.fold(0, (s, c) => s + c.freight)), '', num0(bilties.fold(0, (s, c) => s + c.balance))],
+          ['TOTAL', '${bilties.length}', '', '', '', '${bilties.fold<int>(0, (s, c) => s + (c.packages ?? 0))}', '',
+            num0(bilties.fold<int>(0, (s, c) => s + c.freight)), '', num0(bilties.fold<int>(0, (s, c) => s + c.balance))],
         ]
       : [
           for (final t in trips)
@@ -877,11 +877,11 @@ Future<Uint8List> registerPdf(Repo r, DateTime month, List<Trip> trips, List<Con
               num0(t.ownerBalance),
             ],
           ['TOTAL', '${trips.length}', '', '', '',
-            num0(trips.fold(0, (s, t) => s + (t.isPart ? t.biltyFreight : t.freight))),
-            num0(trips.fold(0, (s, t) => s + t.hire)),
-            num0(trips.fold(0, (s, t) => s + t.commission)),
-            num0(trips.fold(0, (s, t) => s + t.partyBalance)),
-            num0(trips.fold(0, (s, t) => s + t.ownerBalance))],
+            num0(trips.fold<int>(0, (s, t) => s + (t.isPart ? t.biltyFreight : t.freight))),
+            num0(trips.fold<int>(0, (s, t) => s + t.hire)),
+            num0(trips.fold<int>(0, (s, t) => s + t.commission)),
+            num0(trips.fold<int>(0, (s, t) => s + t.partyBalance)),
+            num0(trips.fold<int>(0, (s, t) => s + t.ownerBalance))],
         ];
   doc.addPage(pw.MultiPage(
     pageFormat: PdfPageFormat.a4.landscape,
